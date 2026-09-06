@@ -242,7 +242,7 @@ def queue_prompts_into_antigravity(
     steps: int = 5,
     subagents: int = 0,
     delay_between_steps: float = 0.35,
-    countdown_seconds: float = 1.5,
+    countdown_seconds: float = 0.2,
     app_name: str = "Antigravity",
     custom_prompts: Optional[list[str]] = None,
     conversation_id: Optional[str] = None,
@@ -367,7 +367,7 @@ def main() -> int:
     parser.add_argument("--steps", "-n", type=int, default=5, help="Number of follow-up steps")
     parser.add_argument("--subagents", "-s", type=int, default=0, help="Max subagents per step (default: 0 = none)")
     parser.add_argument("--delay", "-d", type=float, default=0.35, help="Delay between messages in seconds")
-    parser.add_argument("--countdown", "-c", type=float, default=1.5, help="Countdown before dispatch")
+    parser.add_argument("--countdown", "-c", type=float, default=0.2, help="Countdown before dispatch")
     parser.add_argument(
         "--conversation-id", "-C",
         type=str,

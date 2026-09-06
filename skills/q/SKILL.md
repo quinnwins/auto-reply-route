@@ -69,12 +69,16 @@ The agent MUST perform two actions in the SAME turn:
      - For 2–3 steps: Build ➔ Harden & Edge Cases ➔ Real Test Verification.
      - For 5 steps: Phase 1 Refutation ➔ Phase 2 Minimal Spike ➔ Phase 3 Feasibility ➔ Phase 4 Go/No-Go Attack ➔ Phase 5 Synthesis.
 3. **Stage into Visible Queue:**
-   Execute immediately via `run_command`:
+   Execute immediately via `run_command` without reading files, inspecting git, or planning first:
+   ```bash
+   queue_paster "<idea>" -n <N> -s <M> --delivery-mode gui
+   ```
+   Or with bespoke prompts:
    ```bash
    python3 -c '
    from auto_reply_route.queue_paster import queue_prompts_into_antigravity
    prompts = [...] # your bespoke prompts
-   queue_prompts_into_antigravity(prompt="<idea>", steps=<N>, subagents=<M>, countdown_seconds=0.2, custom_prompts=prompts)
+   queue_prompts_into_antigravity(prompt="<idea>", steps=<N>, subagents=<M>, countdown_seconds=0.2, delivery_mode="gui", custom_prompts=prompts)
    '
    ```
    All follow-ups now sit in the visible **`Queued Messages`** tray above the chat bar.
