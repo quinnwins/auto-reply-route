@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Queued Messages Interactive Playground</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Custom scrollbar and animations */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.4); }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.02); }
+    }
+    .pulse-glow { animation: pulseGlow 2.5s infinite ease-in-out; }
+    :root {
+      --background: #f8fafc;
+      --foreground: #0f172a;
+      --card: #ffffff;
+      --card-foreground: #0f172a;
+      --border: #e2e8f0;
+      --muted: #f1f5f9;
+      --muted-foreground: #64748b;
+      --placeholder: #94a3b8;
+      --secondary: #f1f5f9;
+      --primary: #2563eb;
+      --primary-foreground: #ffffff;
+      --accent: #3b82f6;
+      --accent-foreground: #ffffff;
+      --ios-switch-bg: #e2e8f0;
+      --ios-switch-active: #34c759;
+    }
+
+    [data-theme="dark"], .dark {
+      --background: #090d16;
+      --foreground: #f8fafc;
+      --card: #111827;
+      --card-foreground: #f8fafc;
+      --border: #1e293b;
+      --muted: #1e293b;
+      --muted-foreground: #94a3b8;
+      --placeholder: #64748b;
+      --secondary: #1f2937;
+      --primary: #3b82f6;
+      --primary-foreground: #ffffff;
+      --accent: #60a5fa;
+      --accent-foreground: #ffffff;
+      --ios-switch-bg: #374151;
+      --ios-switch-active: #34c759;
+    }
+
+    body {
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-3 sm:p-6 min-h-screen">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Top Header & Navigation -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border)] pb-5">
+      <div>
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20 flex items-center justify-center text-xl font-bold">
+            ⚡
+          </div>
+          <div>
+            <h1 class="text-xl font-bold tracking-tight text-[var(--foreground)]">Queued Messages Playground</h1>
+            <p class="text-xs text-[var(--muted-foreground)]">Explore domain-agnostic follow-ups, subagent isolation, and Stop Hook auto-reply dispatch</p>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+          Stop Hook: Active
+        </span>
+        <button id="quick-theme-toggle" aria-label="Switch color theme" class="min-h-[44px] min-w-[44px] px-3 py-2 text-xs font-semibold rounded-xl border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--secondary)] active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-500 transition duration-150 cursor-pointer flex items-center justify-center gap-1.5" title="Switch Theme">
+          <span id="theme-toggle-icon" class="text-sm">🌙</span>
+          <span id="theme-toggle-label" class="hidden sm:inline font-medium">Dark</span>
+        </button>
+        <button id="open-settings-btn" aria-label="Open iOS style settings" class="min-h-[44px] min-w-[44px] px-3 py-2 text-xs font-semibold rounded-xl border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--secondary)] active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-500 transition duration-150 cursor-pointer flex items-center justify-center gap-1.5" title="iOS Settings">
+          <span class="text-sm">⚙️</span>
+          <span class="hidden sm:inline font-medium">Settings</span>
+        </button>
+        <button id="reset-all-btn" class="min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--secondary)] active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-500 transition duration-150 cursor-pointer">
+          Reset Demo
+        </button>
+      </div>
+    </header>
+
+    <!-- 20 Sample Prompts Showcase Deck -->
+    <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+        <div>
+          <h2 class="text-sm font-semibold text-[var(--foreground)]">Select a Sample Prompt (20 Diverse Real-World Scenarios)</h2>
+          <p class="text-xs text-[var(--muted-foreground)]">Click any scenario below to see how the engine instantly configures specialized follow-up routes</p>
+        </div>
+        <div class="flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+          <span>Categories:</span>
+          <span class="font-semibold text-[var(--foreground)]">5 Domains</span>
+        </div>
+      </div>
+
+      <!-- Domain Category Tabs -->
+      <div class="flex flex-wrap gap-2" id="category-tabs">
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-bold border border-blue-500/30 bg-blue-500/10 text-blue-500 cursor-pointer transition active:scale-95" data-cat="human">
+          🗣️ Everyday & Vague (8)
+        </button>
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95" data-cat="science">
+          🔬 Science & Medical (4)
+        </button>
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95" data-cat="strategy">
+          📈 Strategy & Venture (4)
+        </button>
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95" data-cat="code">
+          💻 Software Engineering (4)
+        </button>
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95" data-cat="ux">
+          🎨 UI / UX Craft (4)
+        </button>
+        <button class="cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95" data-cat="agent">
+          🤖 Multi-Agent Systems (4)
+        </button>
+      </div>
+
+      <!-- Prompt Cards Grid (4 per category displayed) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="prompt-cards-grid">
+        <!-- Injected dynamically by JS -->
+      </div>
+
+      <!-- Custom Prompt Input Box -->
+      <div class="pt-2 border-t border-[var(--border)] flex flex-col sm:flex-row items-center gap-2">
+        <div class="relative w-full">
+          <input id="custom-prompt-input" type="text" placeholder="Or type any custom prompt to test (e.g. 'Synthesize aerodynamic wake turbulence for eVTOL')..." class="w-full min-h-[44px] px-4 text-xs rounded-xl border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] placeholder-[var(--placeholder)] focus:outline-none focus:ring-2 focus:ring-blue-500 transition" />
+        </div>
+        <button id="apply-custom-btn" class="w-full sm:w-auto min-h-[44px] px-5 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-95 transition cursor-pointer whitespace-nowrap">
+          Queue Custom Prompt
+        </button>
+      </div>
+    </section>
+
+    <!-- Main Workspace Split View: The Live UI Card vs. The Stop Hook Simulator -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT COLUMN: The Native "Queued Messages" UI Container (as seen in user screenshot) -->
+      <div class="lg:col-span-7 space-y-4">
+        
+        <!-- Controls Bar: Step Count & Smart Subagent Directive Selector -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 text-xs space-y-2">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+            <span class="font-medium text-[var(--muted-foreground)]">Follow-up Message Count:</span>
+            <div class="flex items-center gap-1.5" id="count-selector">
+              <button class="count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-500 font-bold active:scale-95 transition cursor-pointer" data-count="1">1 (Default)</button>
+              <button class="count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-count="2">2</button>
+              <button class="count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-count="3">3</button>
+              <button class="count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-count="4">4</button>
+              <button class="count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-count="5">5 (Max)</button>
+            </div>
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-[var(--muted-foreground)]">Smart Subagent Directive:</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-500 border border-purple-500/20">Prevents Slop</span>
+            </div>
+            <div class="flex items-center gap-1.5" id="directive-selector">
+              <button class="dir-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-500 font-bold active:scale-95 transition cursor-pointer" data-directive="team3">Team of 3 (Default)</button>
+              <button class="dir-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-directive="single1">1 Subagent</button>
+              <button class="dir-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer" data-directive="none">Directive Off</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- The QUEUED MESSAGES Container (Matches Screenshot Directly) -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+          
+          <!-- Header Banner -->
+          <div class="p-4 border-b border-[var(--border)] bg-slate-500/5 flex items-center justify-between cursor-pointer select-none" id="queue-accordion-header">
+            <div class="flex items-center gap-2.5">
+              <span class="text-sm font-bold text-[var(--foreground)]" id="queue-header-title">Queued Messages 5</span>
+              <span class="text-xs text-[var(--muted-foreground)]">— Sends after agent finishes working</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded font-semibold bg-blue-500/10 text-blue-500 border border-blue-500/20" id="domain-pill">Research</span>
+              <button class="text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition" id="accordion-toggle">
+                <svg id="chevron-icon" class="w-4 h-4 transform transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Queued Cards Stack -->
+          <div class="p-4 space-y-3" id="queue-list-container">
+            <!-- Messages injected dynamically by JS -->
+          </div>
+
+          <!-- Add Quick Follow-Up Prompt to Queue Footer -->
+          <div class="p-3 border-t border-[var(--border)] bg-[var(--background)] flex items-center gap-2">
+            <input id="quick-add-input" type="text" placeholder="Add another follow-up message to this queue..." class="flex-1 min-h-[38px] px-3 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder-[var(--placeholder)] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <button id="quick-add-btn" class="min-h-[38px] px-3 py-1 text-xs font-semibold rounded-lg bg-[var(--foreground)] text-[var(--background)] hover:opacity-90 active:scale-95 transition cursor-pointer">
+              + Add
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Box Input Mockup (Shows where this card sits in the Antigravity Canvas) -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3 shadow-inner opacity-80">
+          <div class="text-[11px] text-[var(--muted-foreground)] mb-1.5 flex items-center justify-between">
+            <span>Antigravity Chat Box (Input Surface)</span>
+            <span class="text-[10px] font-mono">3.8 Sonnet / Flash</span>
+          </div>
+          <div class="min-h-[50px] p-2.5 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted-foreground)] italic flex items-center justify-between">
+            <span>Type a message to interrupt or chat...</span>
+            <button id="human-interrupt-btn" class="min-h-[32px] px-3 py-1 text-[11px] font-medium rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 active:scale-95 transition cursor-pointer">
+              Simulate Human Preemption (Pause Queue)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: The Stop Hook & Subagent Simulation HUD -->
+      <div class="lg:col-span-5 space-y-4">
+        
+        <!-- Live Run Action Card -->
+        <div class="bg-gradient-to-br from-blue-500/10 via-indigo-500/5 to-purple-500/10 border border-blue-500/20 rounded-2xl p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🤖</span>
+              <h3 class="font-bold text-sm text-[var(--foreground)]">Agent Turn Simulator</h3>
+            </div>
+            <span id="agent-status-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+              IDLE (Ready for Turn)
+            </span>
+          </div>
+
+          <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+            Click below to simulate the agent completing its current turn. The Stop hook will evaluate completion, verify subagents, and automatically pop the next message.
+          </p>
+
+          <div class="flex flex-col gap-2">
+            <button id="step-agent-btn" class="w-full min-h-[44px] px-5 py-2.5 rounded-xl font-bold text-xs bg-blue-600 text-white shadow hover:bg-blue-700 active:scale-95 transition duration-150 flex items-center justify-center gap-2 cursor-pointer">
+              <span>▶</span>
+              <span id="step-agent-text">Simulate Agent Finishes Working</span>
+            </button>
+            <button id="auto-play-btn" class="w-full min-h-[38px] px-4 py-2 rounded-xl font-medium text-xs border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--secondary)] active:scale-95 transition duration-150 cursor-pointer">
+              ⚡ Auto-Play All Queued Turns
+            </button>
+          </div>
+        </div>
+
+        <!-- Isolated Subagents Monitor (Demonstrating Token Context Separation) -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xs">🛡️</span>
+              <h4 class="text-xs font-semibold text-[var(--foreground)]">Subagent Token Bubble Monitor</h4>
+            </div>
+            <span class="text-[10px] font-mono text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded font-semibold">
+              Tokens Quarantined
+            </span>
+          </div>
+          <p class="text-[11px] text-[var(--muted-foreground)]">
+            Intermediate tool calls and reasoning happen inside isolated transcripts. Only the final synthesis returns to the main thread.
+          </p>
+
+          <div class="space-y-2" id="subagents-list">
+            <!-- 3 subagents dynamically displayed -->
+          </div>
+        </div>
+
+        <!-- Live Execution Logs / Stop Hook Decisions -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-semibold text-[var(--foreground)]">Stop Hook Decision Log</h4>
+            <span class="text-[10px] font-mono text-[var(--muted-foreground)]">Live Stream</span>
+          </div>
+          <div class="bg-[var(--background)] border border-[var(--border)] rounded-xl p-3 font-mono text-[11px] max-h-48 overflow-y-auto space-y-1.5" id="decision-log">
+            <div class="text-[var(--muted-foreground)]">[READY] Select a prompt or click 'Simulate Agent Finishes Working' to begin...</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- iOS Settings Sheet / Modal -->
+  <div id="ios-settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity duration-200" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-2xl space-y-6 transform transition-transform duration-200">
+      
+      <!-- iOS Sheet Grabber & Header -->
+      <div class="space-y-3">
+        <div class="w-10 h-1 rounded-full bg-[var(--muted-foreground)]/30 mx-auto"></div>
+        <div class="flex items-center justify-between">
+          <h2 id="settings-title" class="text-lg font-bold text-[var(--foreground)] tracking-tight">iOS Settings</h2>
+          <button id="close-settings-btn" class="min-h-[44px] px-3 py-1.5 text-sm font-semibold text-blue-500 hover:text-blue-600 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg transition duration-150 cursor-pointer">
+            Done
+          </button>
+        </div>
+      </div>
+
+      <!-- iOS Grouped Section: Appearance -->
+      <div class="space-y-2">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] px-1">Appearance</span>
+        <div class="rounded-2xl border border-[var(--border)] bg-[var(--background)] divide-y divide-[var(--border)] overflow-hidden">
+          
+          <!-- Segmented Control (Light / Dark / System) -->
+          <div class="p-3">
+            <div class="grid grid-cols-3 gap-1 p-1 rounded-xl bg-[var(--card)] border border-[var(--border)]" id="theme-segmented-control">
+              <button data-theme-val="light" class="theme-seg-btn min-h-[44px] rounded-lg text-xs font-semibold text-[var(--muted-foreground)] flex items-center justify-center gap-1.5 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500">
+                <span>☀️</span>
+                <span>Light</span>
+              </button>
+              <button data-theme-val="dark" class="theme-seg-btn min-h-[44px] rounded-lg text-xs font-semibold text-[var(--muted-foreground)] flex items-center justify-center gap-1.5 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500">
+                <span>🌙</span>
+                <span>Dark</span>
+              </button>
+              <button data-theme-val="system" class="theme-seg-btn min-h-[44px] rounded-lg text-xs font-semibold text-[var(--muted-foreground)] flex items-center justify-center gap-1.5 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500">
+                <span>📱</span>
+                <span>System</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- iOS Dark Mode Switch Row -->
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 flex items-center justify-center text-sm">
+                🌙
+              </div>
+              <div>
+                <span class="text-sm font-semibold text-[var(--foreground)] block">Dark Mode</span>
+                <span class="text-xs text-[var(--muted-foreground)]">Switch interface appearance</span>
+              </div>
+            </div>
+            <!-- iOS Cupertino Switch -->
+            <button id="ios-theme-switch" role="switch" aria-checked="false" aria-label="Toggle dark mode" class="w-[51px] h-[31px] rounded-full p-[2px] transition-colors duration-200 ease-in-out cursor-pointer relative flex items-center bg-[var(--ios-switch-bg)] active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-500">
+              <span id="ios-switch-knob" class="w-[27px] h-[27px] rounded-full bg-white shadow-md transform transition-transform duration-200 ease-in-out translate-x-0"></span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- iOS Grouped Section: Queue & Subagent Controls -->
+      <div class="space-y-2">
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] px-1">Queue & Subagents</span>
+        <div class="rounded-2xl border border-[var(--border)] bg-[var(--background)] divide-y divide-[var(--border)] overflow-hidden">
+          
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-500 border border-purple-500/20 flex items-center justify-center text-sm">
+                🛡️
+              </div>
+              <div>
+                <span class="text-sm font-semibold text-[var(--foreground)] block">Token Quarantine</span>
+                <span class="text-xs text-[var(--muted-foreground)]">Keep intermediate scratchpads isolated</span>
+              </div>
+            </div>
+            <span class="text-xs font-semibold font-mono text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Active</span>
+          </div>
+
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-500 border border-blue-500/20 flex items-center justify-center text-sm">
+                ⚡
+              </div>
+              <div>
+                <span class="text-sm font-semibold text-[var(--foreground)] block">Auto-Reply Stop Hook</span>
+                <span class="text-xs text-[var(--muted-foreground)]">Dispatches next turn when agent settles</span>
+              </div>
+            </div>
+            <span class="text-xs font-semibold font-mono text-blue-500 bg-blue-500/10 px-2.5 py-1 rounded-full border border-blue-500/20">Enabled</span>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 20 CURATED SAMPLE PROMPTS ACROSS 5 DIVERSE DOMAINS
+    // =========================================================================
+    const samplePrompts = {
+      human: [
+        {
+          id: "h1",
+          title: "Sensitive Teeth After Whitening",
+          prompt: "my teeth feel sensitive after whitening, what can we actually do about that?",
+          domain: "human",
+          subject: "sensitive teeth after whitening",
+          subagents: [
+            { name: "Tooth Enamel & Sensitivity Specialist", role: "Root Cause & Relief" },
+            { name: "Everyday Home Remedies Skeptic", role: "Refuting Unproven Myths" },
+            { name: "Friendly Patient Care Guide", role: "Step-by-Step Action Plan" }
+          ]
+        },
+        {
+          id: "h2",
+          title: "10-Second Shower Teeth Cleaner",
+          prompt: "can we make something that cleans teeth in 10 seconds while you shower?",
+          domain: "human",
+          subject: "10-second shower teeth cleaner gadget",
+          subagents: [
+            { name: "Water Flow & Ultrasonic Specialist", role: "Physics & Feasibility" },
+            { name: "Mouthpiece & Comfort Designer", role: "Human Fit" },
+            { name: "Failed Kickstarter Autopsy Reviewer", role: "Why Others Failed" }
+          ]
+        },
+        {
+          id: "h3",
+          title: "App Feels Clunky on Mobile",
+          prompt: "the app feels clunky on my phone, make it feel smooth",
+          domain: "human",
+          subject: "clunky mobile app feel",
+          subagents: [
+            { name: "Speed & Frame-Rate Tester", role: "Finding Jitter & Lag" },
+            { name: "Touch & Button Inspector", role: "Tap Targets & Spacing" },
+            { name: "Everyday User Experience Advocate", role: "Natural Flow" }
+          ]
+        },
+        {
+          id: "h4",
+          title: "Users Sign Up Then Disappear",
+          prompt: "people keep signing up and then disappearing, find out why",
+          domain: "human",
+          subject: "users leaving right after signup",
+          subagents: [
+            { name: "First-5-Minutes Detective", role: "Where People Get Stuck" },
+            { name: "User Hesitation & Confusion Auditor", role: "Friction Points" },
+            { name: "Honest Retention Realist", role: "Why People Drop Off" }
+          ]
+        },
+        {
+          id: "h5",
+          title: "Is This Startup Idea Dumb?",
+          prompt: "help me figure out if this startup idea is dumb before i waste money on it",
+          domain: "human",
+          subject: "startup idea reality check",
+          subagents: [
+            { name: "Brutal Competitor Skeptic", role: "What People Use Today" },
+            { name: "Willingness-to-Pay Investigator", role: "Will Anyone Pay?" },
+            { name: "Lean Budget Realist", role: "Cheapest Test First" }
+          ]
+        },
+        {
+          id: "h6",
+          title: "Website Taking Forever in Mornings",
+          prompt: "why is our website taking forever in the mornings?",
+          domain: "human",
+          subject: "morning website slowdown",
+          subagents: [
+            { name: "Morning Traffic & Task Detective", role: "What Runs at 9am" },
+            { name: "Database Jam Investigator", role: "Bottlenecks" },
+            { name: "Quick Fix & Cache Specialist", role: "Simplest Remedy" }
+          ]
+        },
+        {
+          id: "h7",
+          title: "Raise Prices Without Backlash",
+          prompt: "how do we raise our prices without making everyone mad at us?",
+          domain: "human",
+          subject: "price hike communication",
+          subagents: [
+            { name: "Customer Loyalty & Churn Forecaster", role: "Expected Pushback" },
+            { name: "Grandfathering & Fair Deal Planner", role: "Soft Landing" },
+            { name: "No-Bullshit Human Copywriter", role: "Honest Email Draft" }
+          ]
+        },
+        {
+          id: "h8",
+          title: "Make Checkout Look Less Sketchy",
+          prompt: "make the checkout page look less sketchy",
+          domain: "human",
+          subject: "shady-looking checkout page",
+          subagents: [
+            { name: "Buyer Trust & Safety Auditor", role: "What Looks Scammy" },
+            { name: "Visual Cleanliness Specialist", role: "Order & Spacing" },
+            { name: "Frictionless Payment Reviewer", role: "Zero Confusion" }
+          ]
+        }
+      ],
+      science: [
+        {
+          id: "s1",
+          title: "Rigid STL Custom Dental Trays",
+          prompt: "limitations of rigid STL-derived custom trays in the presence of dynamic dental changes",
+          domain: "research",
+          subject: "rigid STL dental trays",
+          subagents: [
+            { name: "Periodontal Phenotypes & Ergonomics Scientist", role: "Biomaterials & Anatomy" },
+            { name: "Bioacoustics & Cavitation Fluidics Scientist", role: "Fluid Dynamics" },
+            { name: "Kinematics & Transmission Architect", role: "Mechanical Wear" }
+          ]
+        },
+        {
+          id: "s2",
+          title: "Cavitation Acoustic Transducer",
+          prompt: "Acoustic transducer bioacoustics for ultrasonic dental plaque and biofilm cavitation",
+          domain: "research",
+          subject: "ultrasonic acoustic transducer",
+          subagents: [
+            { name: "Piezoelectric Ceramics & Transducer Engineer", role: "Acoustic Physics" },
+            { name: "Oral Biofilm Microbiologist", role: "Microbial Ecology" },
+            { name: "Fluid Cavitation Micro-Simulation Specialist", role: "CFD Modeling" }
+          ]
+        },
+        {
+          id: "s3",
+          title: "Microfluidic Droplet Generator",
+          prompt: "Microfluidic droplet generator architecture for single-cell mRNA encapsulation and barcoding",
+          domain: "research",
+          subject: "single-cell microfluidic droplet generator",
+          subagents: [
+            { name: "Microfluidic Channel Flow Dynamicist", role: "Two-Phase Flow" },
+            { name: "Single-Cell Polymer Chemist", role: "Emulsion Stability" },
+            { name: "Genomics Barcoding Validation Scientist", role: "Assay Quality" }
+          ]
+        },
+        {
+          id: "s4",
+          title: "CRISPR-Cas9 Off-Target Assay",
+          prompt: "CRISPR-Cas9 guide RNA off-target cleavage assay protocols and GUIDE-seq validation",
+          domain: "research",
+          subject: "CRISPR off-target assay",
+          subagents: [
+            { name: "Molecular Geneticist & CRISPR Guide Architect", role: "Genomic Targeting" },
+            { name: "Bioinformatics NGS Pipeline Engineer", role: "Read Alignment" },
+            { name: "Cellular DNA Repair & Toxicity Reviewer", role: "Double-Strand Breaks" }
+          ]
+        }
+      ],
+      strategy: [
+        {
+          id: "b1",
+          title: "OTC Dental Acoustic 510(k) GTM",
+          prompt: "Evaluate market size, payer reimbursement, and regulatory 510(k) pathway for an OTC dental acoustic device",
+          domain: "strategy",
+          subject: "OTC dental acoustic market & 510(k) pathway",
+          subagents: [
+            { name: "FDA 510(k) Medical Device Regulatory Counsel", role: "Clearance Strategy" },
+            { name: "Dental Payer & CPT Reimbursement Analyst", role: "Unit Economics" },
+            { name: "Consumer Healthcare Go-To-Market Lead", role: "Distribution Channels" }
+          ]
+        },
+        {
+          id: "b2",
+          title: "SaaS Seat-Based vs Metered Pricing",
+          prompt: "SaaS pricing transition from seat-based licenses to consumption-metered API tokens for developer tools",
+          domain: "strategy",
+          subject: "developer tool consumption pricing model",
+          subagents: [
+            { name: "Enterprise SaaS Monetization Architect", role: "Billing Architecture" },
+            { name: "Financial Controller & Cohort LTV Modeler", role: "Margin Analysis" },
+            { name: "Developer Experience & Churn Analyst", role: "User Friction" }
+          ]
+        },
+        {
+          id: "b3",
+          title: "Autonomous Agent Competitor Autopsy",
+          prompt: "Post-mortem analysis on failed commercial agent startups to identify structural fragility and dead-end halts",
+          domain: "strategy",
+          subject: "autonomous agent startup failure modes",
+          subagents: [
+            { name: "Venture Principal & AI Ecosystem Auditor", role: "Market Viability" },
+            { name: "Agent Reliability & Evaluation Benchmark Specialist", role: "Failure Taxonomies" },
+            { name: "Enterprise Security & Compliance Gatekeeper", role: "Adoption Blockers" }
+          ]
+        },
+        {
+          id: "b4",
+          title: "Seed Round 24-Mo Burn & Pitch",
+          prompt: "Seed fundraising narrative, 24-month headcount burn schedule, and milestone inflection model",
+          domain: "strategy",
+          subject: "seed financing milestone & burn model",
+          subagents: [
+            { name: "Venture Capital Partner & Pitch Evaluator", role: "Narrative Arc" },
+            { name: "Fractional CFO & Headcount Runway Modeler", role: "Cash Runway" },
+            { name: "Founder Operations & Cap Table Strategist", role: "Dilution Math" }
+          ]
+        }
+      ],
+      code: [
+        {
+          id: "c1",
+          title: "Stripe Webhook Idempotent Dispatcher",
+          prompt: "Build Stripe webhook dispatcher with idempotent event replay, signature verification, and exponential backoff",
+          domain: "code",
+          subject: "Stripe webhook dispatcher",
+          subagents: [
+            { name: "Fintech Security & HMAC Signature Auditor", role: "Cryptographic Auth" },
+            { name: "Distributed Systems Concurrency Specialist", role: "Idempotency Locks" },
+            { name: "Automated QA & Fault Injection Engineer", role: "Chaos Simulation" }
+          ]
+        },
+        {
+          id: "c2",
+          title: "Distributed Cache with Stampede Defense",
+          prompt: "Distributed in-memory cache with single-flight mutexes, TTL jitter, and Redis failover in Go",
+          domain: "code",
+          subject: "distributed in-memory cache",
+          subagents: [
+            { name: "Go Concurrency & Memory Model Architect", role: "Race Detection" },
+            { name: "Cache Invalidation & Thundering Herd Analyst", role: "Dogpiling Defense" },
+            { name: "Load Testing & High-P99 Latency Profiler", role: "Benchmark Suite" }
+          ]
+        },
+        {
+          id: "c3",
+          title: "50M Row Zero-Downtime Migration",
+          prompt: "PostgreSQL zero-downtime schema column migration for 50M records with pg_repack and view abstraction",
+          domain: "code",
+          subject: "zero-downtime PostgreSQL schema migration",
+          subagents: [
+            { name: "Database Reliability Engineer (DBRE)", role: "Lock Monitoring" },
+            { name: "Query Plan & Index Bloat Specialist", role: "VACUUM Efficiency" },
+            { name: "Transaction Boundary & Rollback Tester", role: "Data Integrity" }
+          ]
+        },
+        {
+          id: "c4",
+          title: "OAuth2 PKCE Flow for Desktop App",
+          prompt: "Implement OAuth2 PKCE authorization code flow with secure OS keychain token storage for Electron desktop app",
+          domain: "code",
+          subject: "OAuth2 PKCE authentication flow",
+          subagents: [
+            { name: "Desktop App Security & IPC Auditor", role: "IPC Hardening" },
+            { name: "OAuth2 Protocol & State Nonce Specialist", role: "CSRF & Token Leak" },
+            { name: "Native Keychain & Keystore Integrator", role: "OS Secret Storage" }
+          ]
+        }
+      ],
+      ux: [
+        {
+          id: "u1",
+          title: "Settings Modal 4/8pt Grid Revamp",
+          prompt: "Revamp settings modal dialog to strict 4/8pt grid rhythm, 44px hitboxes, and concentric corner radii",
+          domain: "ux",
+          subject: "settings modal design system overhaul",
+          subagents: [
+            { name: "Design System Token & Geometry Auditor", role: "Concentric Radii" },
+            { name: "Touch Ergonomics & Tap Target Inspector", role: "44px Fitts's Law" },
+            { name: "Micro-Animation & Spring Physics Designer", role: "150ms Ease States" }
+          ]
+        },
+        {
+          id: "u2",
+          title: "Dark Mode Accessible Contrast",
+          prompt: "Design dark mode palette with APCA accessible contrast, zero pure-black OLED smearing, and semantic tokens",
+          domain: "ux",
+          subject: "accessible dark mode color palette",
+          subagents: [
+            { name: "Color Science & APCA Contrast Engineer", role: "Visual Perception" },
+            { name: "OLED Smearing & Elevation Surface Architect", role: "Luminance Tiers" },
+            { name: "WCAG 2.2 AAA Compliance Reviewer", role: "Accessibility Proof" }
+          ]
+        },
+        {
+          id: "u3",
+          title: "Mobile Drawer with iOS Gestures",
+          prompt: "Mobile checkout drawer with touch velocity gestures, safe-area-inset compliance, and backdrop blur",
+          domain: "ux",
+          subject: "mobile swipe-to-dismiss drawer",
+          subagents: [
+            { name: "Touch Velocity & Physics Gesture Engineer", role: "Gesture Tracking" },
+            { name: "iOS Safe Area & Viewport Specialist", role: "Mobile Ergonomics" },
+            { name: "Focus Trap & Screen Reader Auditor", role: "ARIA Dialog Modal" }
+          ]
+        },
+        {
+          id: "u4",
+          title: "Anti-Slop Microcopy & Plain English",
+          prompt: "Replace robotic corporate jargon and system mechanics in error alerts with clear, friendly living-room language",
+          domain: "ux",
+          subject: "anti-slop UX writing & microcopy",
+          subagents: [
+            { name: "UX Content Strategist & Living-Room Auditor", role: "Plain Language" },
+            { name: "Cognitive Load & Friction Reducer", role: "Clarity Scoring" },
+            { name: "Action Verb & Direct Button Copywriter", role: "Intent Verbs" }
+          ]
+        }
+      ],
+      agent: [
+        {
+          id: "a1",
+          title: "Algorithmic Trading Critique Team",
+          prompt: "3-person subagent critique team for algorithmic trading backtest with explicit mandate to refute overfitting",
+          domain: "research",
+          subject: "algorithmic trading backtest validation",
+          subagents: [
+            { name: "Quantitative Alpha & Overfitting Skeptic", role: "Lookahead Bias" },
+            { name: "Market Microstructure & Slippage Modeler", role: "Execution Friction" },
+            { name: "Adversarial Stress Test Architect", role: "Black Swan Drawdown" }
+          ]
+        },
+        {
+          id: "a2",
+          title: "Speculative Decoding Pipeline",
+          prompt: "Speculative decoding benchmark evaluating draft token acceptance between Gemini Flash and Pro verifier",
+          domain: "code",
+          subject: "speculative decoding draft verifier",
+          subagents: [
+            { name: "LLM Inference & KV Cache Optimizer", role: "Memory Bandwidth" },
+            { name: "Speculative Acceptance Ratio Statistician", role: "Draft Quality" },
+            { name: "End-to-End P99 Latency Benchmarker", role: "Throughput Metrics" }
+          ]
+        },
+        {
+          id: "a3",
+          title: "Adversarial Prompt Injection Harness",
+          prompt: "Automated red-teaming harness testing indirect prompt injection, tool hijacking, and jailbreak vectors",
+          domain: "code",
+          subject: "adversarial prompt injection test harness",
+          subagents: [
+            { name: "Adversarial Red-Team Exploit Author", role: "Payload Mutation" },
+            { name: "Tool Sandbox & System Prompt Guard", role: "Defense Invariant" },
+            { name: "Automated Regression Sieve Engineer", role: "Zero False Negatives" }
+          ]
+        },
+        {
+          id: "a4",
+          title: "Autonomous Bug Triage Bot",
+          prompt: "Bug report triage bot that reproduces flaky failures in isolated sandboxes and summarizes root cause",
+          domain: "code",
+          subject: "autonomous bug triage & reproduction",
+          subagents: [
+            { name: "Sandbox Reproduction Environment Engineer", role: "Docker Isolation" },
+            { name: "Stack Trace & AST Call-Tree Tracer", role: "Root Cause Mining" },
+            { name: "Minimal Failure Diff Synthesizer", role: "Repro Script" }
+          ]
+        }
+      ]
+    };
+
+    // =========================================================================
+    // STATE MANAGEMENT
+    // =========================================================================
+    let currentCategory = "human";
+    let activePrompt = samplePrompts.human[0];
+    let followupCount = 5;
+    let activeDirective = "team3"; // "team3", "single1", "none"
+    let isAccordionOpen = true;
+    let activeStepIndex = 0;
+    let isAgentRunning = false;
+    let autoPlayInterval = null;
+
+    // The generated messages queue
+    let queueMessages = [];
+
+    function getDirectiveText(mode) {
+      if (mode === "team3") return "Use as many subagents working as a team as you need (up to 3 subagents).";
+      if (mode === "single1") return "Use 1 subagent if needed to isolate execution context.";
+      return "";
+    }
+
+    // =========================================================================
+    // QUEUE GENERATION ALGORITHM (Mirroring builder.py & Logan Kilpatrick Playbook)
+    // =========================================================================
+    function generateQueue(promptObj, count) {
+      const subject = promptObj.subject;
+      const domain = promptObj.domain;
+      let trajectory = [];
+      const directive = getDirectiveText(activeDirective);
+
+      if (domain === "human") {
+        trajectory = [
+          {
+            title: "Multi-Angle Team Investigation & Refutation",
+            teamName: "Discovery & Refutation Trio",
+            personas: [
+              { name: "Root Cause Investigator", role: "Traces real physiological or physical mechanism" },
+              { name: "Unproven Myth Refuter", role: "Challenging old wives' tales and placebo claims" },
+              { name: "Living-Room Action Guide", role: "Delivers simple, reassuring next steps" }
+            ],
+            refutationMandate: "Authorized to refute earlier unverified claims and add on",
+            basePrompt: `have a new 3 person subagent team review and research what is needed for ${subject}, they can refute earlier claims and add on`,
+            badge: "Refutation Pass",
+            domain: "human"
+          },
+          {
+            title: "Simplest Working Solution (Least Complicated)",
+            teamName: "Minimal Spike Trio",
+            personas: [
+              { name: "Minimal Prototype Engineer", role: "Stripping unneeded bells and whistles" },
+              { name: "Simplicity Auditor", role: "Zero jargon, living-room test compliance" },
+              { name: "Everyday User Advocate", role: "Stress-free intuitive workflow" }
+            ],
+            refutationMandate: "Build prototype in the least complicated way; reject overengineering",
+            basePrompt: `have a 3 person subagent team prototype this ${subject} design in the least complicated way that will give me a full sense of how it works`,
+            badge: "Minimal Prototype",
+            domain: "human"
+          },
+          {
+            title: "Honest Effort, Cost & Probability of Success",
+            teamName: "Investment & Reality Trio",
+            personas: [
+              { name: "Effort & Capital Modeler", role: "Rough development costs and time" },
+              { name: "Probability of Success Realist", role: "Empirical odds vs historical failure rates" },
+              { name: "Value / Benefit Assessor", role: "Is this truly worth doing?" }
+            ],
+            refutationMandate: "See if there is any point in continuing this project before spending money",
+            basePrompt: `have a 3 person subagent team review this and see if there is any point in continuing this project, what the investment would look like and what the probability of success would be and projected outcomes`,
+            badge: "Feasibility Reality",
+            domain: "human"
+          },
+          {
+            title: "Adversarial Go / No-Go Reality Check",
+            teamName: "Go / No-Go Tribunal",
+            personas: [
+              { name: "Past Failure Autopsy Investigator", role: "Why others who tried this failed" },
+              { name: "Fatal Flaw & Blind Spot Hunter", role: "Structural pitfalls and adoption traps" },
+              { name: "Strict Go / No-Go Arbiter", role: "Uncompromising go or walk away verdict" }
+            ],
+            refutationMandate: "Determine if this is a go or no-go project because others have failed at this",
+            basePrompt: `critically review your work and determine if this is a go or no go project because there's been lots of others that have failed at this, so we don't want to jump into this blindly and naively`,
+            badge: "Go / No-Go Gate",
+            domain: "human"
+          },
+          {
+            title: "Plain English Summary & Next Steps",
+            teamName: "Synthesis & Delivery Trio",
+            personas: [
+              { name: "Living-Room Copy Synthesizer", role: "Zero corporate jargon, zero plumbing" },
+              { name: "Visual Diagram & Matrix Author", role: "Clear before/after proof & trade-offs" },
+              { name: "Action Roadmap Planner", role: "Concrete next moves without ambiguity" }
+            ],
+            refutationMandate: "Deliver clean final report with diagrams and honest trade-offs",
+            basePrompt: `give me a final report for this ${subject} idea and any potential product business with all relevant info/diagrams/etc`,
+            badge: "Final Report",
+            domain: "human"
+          }
+        ];
+      } else if (domain === "code") {
+        trajectory = [
+          {
+            title: "Review with 3-Person Subagent QA Team",
+            teamName: "3-Person QA Team (First Pass)",
+            personas: [
+              { name: "Edge Case Auditor", role: "Boundary values, race conditions, nulls, timeouts" },
+              { name: "Security Auditor", role: "Injection vectors, auth bypasses, secret exposure" },
+              { name: "Test Coverage Specialist", role: "Strike down fake 'assert True' & missing assertions" }
+            ],
+            refutationMandate: "Audit boundary conditions, race conditions, injection, and strike down fake tests",
+            basePrompt: `have a 3 person subagent QA team (Edge Case Auditor, Security Auditor, Test Coverage Specialist) review the implementation for ${subject}, focusing on edge cases, race conditions, and error recovery, and fix all discovered bugs`,
+            badge: "Adversarial QA",
+            domain: "code"
+          },
+          {
+            title: "Second Independent 3-Person QA Team",
+            teamName: "Fresh QA Team (Zero Cognitive Bias)",
+            personas: [
+              { name: "Chaos & Resiliency Auditor", role: "Poison pill payloads, crash survival, error paths" },
+              { name: "Threat Model Specialist", role: "Inter-agent messaging safety, credential boundaries" },
+              { name: "Invariant & Contract Specialist", role: "Strict schema conformance, serialization roundtrips" }
+            ],
+            refutationMandate: "Deploy with zero cognitive bias from Turn 1; prototype the least complicated fix",
+            basePrompt: `have a second 3 person subagent QA team (Chaos Auditor, Threat Model Specialist, Contract Specialist) prototype this design in the least complicated way that will give me a full sense of how it works`,
+            badge: "Chaos QA",
+            domain: "code"
+          },
+          {
+            title: "Executive Audit: Simplicity, Tech Debt & Delight",
+            teamName: "Executive Review Team",
+            personas: [
+              { name: "Simplicity Auditor", role: "Tower of babel check, eliminate bloated AI slop" },
+              { name: "Technical Debt Officer", role: "Vetoes anything an executive would veto" },
+              { name: "Product Director", role: "Ensures delightful, friction-free customer UX" }
+            ],
+            refutationMandate: "Make sure we have not built a tower of babel here and be completely honest about where things are at",
+            basePrompt: `have an executive review subagent team (Simplicity Auditor to make sure we have not built a tower of babel here and be completely honest about where things are at, Technical Debt Officer to veto anything an executive would, Product Director to make sure it is delightful) audit for compromises, temporary hacks, or bloated AI slop; refactor complex branches into clean minimal code`,
+            badge: "Executive Sanity",
+            domain: "code"
+          },
+          {
+            title: "System Integration: Wiring Logic & State Sync",
+            teamName: "System Integration Team",
+            personas: [
+              { name: "Wiring Logic Auditor", role: "Caller and called logic properly wired, no broken args" },
+              { name: "Regressions Checker", role: "Verify backward compatibility & existing tests" },
+              { name: "State Sync Specialist", role: "Atomic disk persistence & thread-safe state sync" }
+            ],
+            refutationMandate: "Make sure caller and called logic is properly wired and no broken arguments or assumptions",
+            basePrompt: `have a system integration subagent team (Wiring Logic Auditor to verify caller and called logic is properly wired and no broken arguments or assumptions, Regressions Checker, State Sync Specialist) critically review your work and run end-to-end assertions to ensure all tests pass with exit code 0`,
+            badge: "Wiring & State",
+            domain: "code"
+          },
+          {
+            title: "Visual Proof & Walkthrough in Web/Simulator",
+            teamName: "Visual Proof Team",
+            personas: [
+              { name: "Screenshot / Simulator Verifier", role: "Automated capture on web or mobile simulator" },
+              { name: "Visual Quality Auditor", role: "4/8pt rhythm, concentric radii, 44px tap targets" },
+              { name: "Walkthrough Documenter", role: "Before/after proof of verified functionality" }
+            ],
+            refutationMandate: "Send screenshot evidence on web or simulator and review if anything needs fixing",
+            basePrompt: `have a visual proof subagent team (Screenshot / Simulator Verifier, Visual Quality Auditor, Walkthrough Documenter) give me a final report for this ${subject} implementation with proof of verified functionality and operational instructions`,
+            badge: "Visual Proof",
+            domain: "code"
+          }
+        ];
+      } else if (domain === "ux") {
+        trajectory = [
+          {
+            title: "Micro-Craft & Touch Ergonomics Audit",
+            teamName: "Micro-Craft Audit Trio",
+            personas: [
+              { name: "Touch Hitbox Auditor", role: "Enforcing >= 44x44px hitboxes & iOS safe-areas" },
+              { name: "Concentric Radii Specialist", role: "R_inner = max(0, R_outer - P) check" },
+              { name: "Grid & Rhythm Enforcer", role: "Strict 4/8pt spacing, zero arbitrary pixels" }
+            ],
+            refutationMandate: "Reject arbitrary off-grid pixels, pinched radii, and sub-44px tap targets",
+            basePrompt: `have a 3 person subagent team audit the interface for ${subject} focusing on 44px tap targets, concentric radii, and accessibility`,
+            badge: "Craft Audit",
+            domain: "ux"
+          },
+          {
+            title: "Transitions, Loading States & Micro-Motion",
+            teamName: "Micro-Motion Trio",
+            personas: [
+              { name: "Transition State Specialist", role: "150ms ease curves & active:scale-95 feedback" },
+              { name: "Skeleton / Loading Auditor", role: "Zero layout shift (CLS) during content loading" },
+              { name: "Responsive Layout Dynamicist", role: "Fluid 375px mobile to widescreen adaptation" }
+            ],
+            refutationMandate: "Implement complete states: hover, active, focus-visible, and loading",
+            basePrompt: `smooth out transitions, loading states, and responsive layout for ${subject} across mobile (375px) and desktop`,
+            badge: "Micro-Motion",
+            domain: "ux"
+          },
+          {
+            title: "High-Intent Plain Copywriting (Anti-Plumbing)",
+            teamName: "Living-Room Copy Trio",
+            personas: [
+              { name: "Living-Room Test Auditor", role: "Delete sentences you wouldn't say over coffee" },
+              { name: "Zero Plumbing Gatekeeper", role: "Never expose server, database, or AI mechanics" },
+              { name: "High-Intent Verb Copywriter", role: "Replace lazy 'Submit' with descriptive actions" }
+            ],
+            refutationMandate: "Cut throat-clearing preambles and corporate fluff; talk about what the user gets",
+            basePrompt: `replace robotic text, lazy verbs, and technical plumbing copy with plain, welcoming everyday language`,
+            badge: "Microcopy",
+            domain: "ux"
+          },
+          {
+            title: "Visual Alignment & Defect Proof",
+            teamName: "Visual Alignment Trio",
+            personas: [
+              { name: "Pixel Alignment Detective", role: "Detect sub-pixel glitches and baseline misalignment" },
+              { name: "Contrast & Accessibility Auditor", role: "WCAG AAA contrast across dark & light modes" },
+              { name: "Visual Evidence Capturer", role: "Screenshot verification of clean alignment" }
+            ],
+            refutationMandate: "Capture visual evidence verifying zero layout shifts or visual glitches",
+            basePrompt: `capture screenshot evidence of the final interface verifying clean alignment and zero layout glitches`,
+            badge: "Visual Evidence",
+            domain: "ux"
+          },
+          {
+            title: "Executive Design Walkthrough & Verification Card",
+            teamName: "Design Walkthrough Trio",
+            personas: [
+              { name: "Stratum 3 Milestone Author", role: "Produces executive before-and-after card" },
+              { name: "User Journey Verifier", role: "End-to-end friction test across key screens" },
+              { name: "Executive Design Lead", role: "Final sign-off stamp on visual craft" }
+            ],
+            refutationMandate: "Generate clean walkthrough card with before-and-after visual proof",
+            basePrompt: `produce a final walkthrough report summarizing all design improvements, metrics, and visual evidence`,
+            badge: "Final Walkthrough",
+            domain: "ux"
+          }
+        ];
+      } else {
+        // Research, Science, Strategy, Venture (Direct match to user screenshot)
+        trajectory = [
+          {
+            title: "Review & Research with Explicit Refutation",
+            teamName: "Domain Discovery & Refutation Trio",
+            personas: promptObj.subagents || [
+              { name: "Domain Specialist A", role: "Primary field investigator" },
+              { name: "Adversarial Refuter B", role: "Authorized to refute earlier claims" },
+              { name: "Systems Architect C", role: "Structural integration & boundaries" }
+            ],
+            refutationMandate: "Authorized to refute earlier claims and add on",
+            basePrompt: `have a new 3 person subagent team review and research what is needed for ${subject}, they can refute earlier claims and add on`,
+            badge: "Refutation Pass",
+            domain: "research"
+          },
+          {
+            title: "Least-Complicated Prototype",
+            teamName: "Minimal Prototyping Trio",
+            personas: [
+              { name: "Minimal Prototype Engineer", role: "Stripping premature speculative parts" },
+              { name: "Occam's Razor Reviewer", role: "Simplest mechanism that proves the concept" },
+              { name: "Feasibility Verifier", role: "Testing core physical/algorithmic viability" }
+            ],
+            refutationMandate: "Prototype in the least complicated way that gives a full sense of how it works",
+            basePrompt: `have a 3 person subagent team prototype this ${subject} design in the least complicated way that will give me a full sense of how it works`,
+            badge: "Minimal Prototype",
+            domain: "research"
+          },
+          {
+            title: "Feasibility, Investment & Probability of Success",
+            teamName: "Investment & Feasibility Trio",
+            personas: [
+              { name: "Capital & Effort Modeler", role: "Tooling, testing, and execution costs" },
+              { name: "Probability of Success Statistician", role: "Empirical odds of succeeding" },
+              { name: "Outcome & Value Assessor", role: "Projected impact vs alternative paths" }
+            ],
+            refutationMandate: "See if there is any point in continuing, what investment looks like, and probability of success",
+            basePrompt: `have a 3 person subagent team review this and see if there is any point in continuing this project, what the investment would look like and what the probability of success would be and projected outcomes`,
+            badge: "Feasibility Reality",
+            domain: "research"
+          },
+          {
+            title: "Adversarial Go / No-Go Decision Gate",
+            teamName: "Adversarial Go / No-Go Tribunal",
+            personas: [
+              { name: "Prior Failure Autopsy Specialist", role: "Why past competitors in this space failed" },
+              { name: "Hidden Pitfall Hunter", role: "Structural, biological, or regulatory blockers" },
+              { name: "Strict Go / No-Go Arbiter", role: "Binary decision gate: proceed or walk away" }
+            ],
+            refutationMandate: "Determine if this is a go or no go project because lots of others have failed; do not jump in blindly",
+            basePrompt: `critically review your work and determine if this is a go or no go project because there's been lots of others that have failed at this, so we don't want to jump into this blindly and naively`,
+            badge: "Go / No-Go Gate",
+            domain: "research"
+          },
+          {
+            title: "Executive Synthesis & Business Report",
+            teamName: "Executive Synthesis Trio",
+            personas: [
+              { name: "Executive Report Synthesizer", role: "Distills multi-agent findings into clean brief" },
+              { name: "Visual Diagram & Matrix Author", role: "Architectural schematics & comparison matrix" },
+              { name: "Action Roadmap Strategist", role: "Clear step-by-step next moves" }
+            ],
+            refutationMandate: "Deliver complete report with all relevant info, diagrams, and business verdict",
+            basePrompt: `give me a final report for this ${subject} idea and any potential product business with all relevant info/diagrams/etc`,
+            badge: "Final Synthesis",
+            domain: "research"
+          }
+        ];
+      }
+
+      return trajectory.slice(0, count).map((item, idx) => {
+        let fullPrompt = item.basePrompt;
+        if (directive && !fullPrompt.includes(directive)) {
+          fullPrompt = `${fullPrompt.replace(/\.+$/, "")}. ${directive}`;
+        }
+        return {
+          ...item,
+          id: `msg-${idx}`,
+          appendedDirective: directive,
+          fullPrompt: fullPrompt,
+          prompt: fullPrompt,
+          status: idx < activeStepIndex ? "COMPLETED" : (idx === activeStepIndex ? "ACTIVE" : "PENDING")
+        };
+      });
+    }
+
+    // =========================================================================
+    // DOM RENDERING
+    // =========================================================================
+    function renderPromptCards() {
+      const grid = document.getElementById("prompt-cards-grid");
+      grid.innerHTML = "";
+
+      const prompts = samplePrompts[currentCategory] || [];
+      prompts.forEach(p => {
+        const isSelected = p.id === activePrompt.id;
+        const card = document.createElement("div");
+        card.className = `p-3.5 rounded-xl border text-left cursor-pointer transition duration-150 active:scale-[0.98] ${
+          isSelected 
+            ? "bg-blue-500/10 border-blue-500/40 shadow-sm ring-1 ring-blue-500/20" 
+            : "bg-[var(--background)] border-[var(--border)] hover:border-blue-500/20"
+        }`;
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-semibold text-xs text-[var(--foreground)] flex items-center gap-1.5">
+              ${isSelected ? "●" : "○"} ${p.title}
+            </span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--card)] text-[var(--muted-foreground)] uppercase">
+              ${p.domain}
+            </span>
+          </div>
+          <p class="text-[11px] text-[var(--muted-foreground)] line-clamp-2 leading-relaxed">
+            "${p.prompt}"
+          </p>
+        `;
+        card.onclick = () => selectPrompt(p);
+        grid.appendChild(card);
+      });
+    }
+
+    function renderQueue() {
+      const list = document.getElementById("queue-list-container");
+      const title = document.getElementById("queue-header-title");
+      const domainPill = document.getElementById("domain-pill");
+
+      title.textContent = `Queued Messages ${queueMessages.length}`;
+      domainPill.textContent = activePrompt.domain.toUpperCase();
+
+      if (!isAccordionOpen) {
+        list.classList.add("hidden");
+        return;
+      }
+      list.classList.remove("hidden");
+      list.innerHTML = "";
+
+      if (queueMessages.length === 0) {
+        list.innerHTML = `<div class="p-6 text-center text-xs text-[var(--muted-foreground)] italic">Queue is empty. Click a sample prompt above or add one manually.</div>`;
+        return;
+      }
+
+      queueMessages.forEach((msg, idx) => {
+        const isCompleted = msg.status === "COMPLETED";
+        const isActive = msg.status === "ACTIVE";
+        const isPending = msg.status === "PENDING";
+
+        const card = document.createElement("div");
+        card.className = `p-4 rounded-xl border transition-all duration-150 space-y-2.5 ${
+          isActive 
+            ? "bg-blue-500/10 border-blue-500/40 shadow-md ring-1 ring-blue-500/30" 
+            : (isCompleted 
+                ? "bg-emerald-500/5 border-emerald-500/20 opacity-90" 
+                : "bg-[var(--background)] border-[var(--border)]")
+        }`;
+
+        let statusBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-500/10 text-[var(--muted-foreground)]">Step ${idx + 1}</span>`;
+        if (isActive) {
+          statusBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-500 font-bold animate-pulse">▶ Active Turn</span>`;
+        } else if (isCompleted) {
+          statusBadge = `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-500 font-bold">✔ Completed</span>`;
+        }
+
+        card.innerHTML = `
+          <!-- Header -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                isCompleted ? "bg-emerald-500 text-white" : (isActive ? "bg-blue-500 text-white" : "bg-slate-300 text-slate-700")
+              }">${idx + 1}</span>
+              <h5 class="text-xs font-bold text-[var(--foreground)]">${msg.title}</h5>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--card)] text-[var(--muted-foreground)] border border-[var(--border)]">${msg.badge}</span>
+              ${statusBadge}
+            </div>
+          </div>
+
+          <!-- Subagent Persona Trio Assigned -->
+          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span class="text-[10px] font-bold text-purple-400 flex items-center gap-1">
+              👥 ${msg.teamName}:
+            </span>
+            ${msg.personas.map(p => `
+              <span class="text-[9px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30" title="${p.role}">
+                <strong>${p.name}</strong>
+              </span>
+            `).join("")}
+          </div>
+
+          <!-- Refutation / Anti-Slop Mandate Banner -->
+          <div class="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-start gap-1.5 leading-relaxed">
+            <span class="font-bold shrink-0">🛡️ Mandate:</span>
+            <span class="italic font-medium">"${msg.refutationMandate}"</span>
+          </div>
+
+          <!-- Verbatim Prompt Box with Appended Smart Directive Highlight -->
+          <div class="text-xs font-mono text-[var(--foreground)] leading-relaxed bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] select-all space-y-1.5">
+            <div>${msg.basePrompt}.</div>
+            ${msg.appendedDirective ? `
+              <div class="pt-1">
+                <span class="text-purple-400 font-bold bg-purple-500/15 border border-purple-500/40 px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 text-[11px]" title="Smart Appended Subagent Team Directive">
+                  <span>⚡ Appended Directive:</span>
+                  <span class="underline decoration-purple-400/50 underline-offset-2">"${msg.appendedDirective}"</span>
+                </span>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Footer Actions -->
+          <div class="flex items-center justify-between text-[10px] text-[var(--muted-foreground)] pt-0.5">
+            <div class="flex items-center gap-2">
+              <span>Domain: <strong class="text-[var(--foreground)]">${msg.domain}</strong></span>
+              <span>•</span>
+              <span class="text-emerald-500 font-mono">Isolated Context Guaranteed</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="editPrompt(${idx})" class="hover:text-blue-500 cursor-pointer font-medium">Edit</button>
+              <span>•</span>
+              <button onclick="deletePrompt(${idx})" class="hover:text-red-500 cursor-pointer font-medium">Delete</button>
+            </div>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function renderSubagents() {
+      const container = document.getElementById("subagents-list");
+      container.innerHTML = "";
+
+      // Determine active team from active step
+      const currentStep = (queueMessages && queueMessages[activeStepIndex]) ? queueMessages[activeStepIndex] : null;
+      const teamName = currentStep ? currentStep.teamName : "Discovery & Refutation Trio";
+      const personas = currentStep ? currentStep.personas : (activePrompt.subagents || [
+        { name: "Domain Specialist A", role: "Primary Investigator" },
+        { name: "Adversarial Refuter B", role: "Refutes flawed claims" },
+        { name: "Synthesis Architect C", role: "Integrator" }
+      ]);
+
+      // Update team title in header
+      const teamHeader = document.getElementById("active-team-header");
+      if (teamHeader) {
+        teamHeader.textContent = `Active Team (Turn ${activeStepIndex + 1}): ${teamName}`;
+      }
+
+      personas.forEach(s => {
+        const item = document.createElement("div");
+        item.className = "p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs space-y-1";
+        
+        let statusBadge = `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">STANDBY</span>`;
+        if (isAgentRunning) {
+          statusBadge = `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold animate-pulse">● REVIEWING</span>`;
+        } else if (currentStep && currentStep.status === "COMPLETED") {
+          statusBadge = `<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">✔ VERIFIED</span>`;
+        }
+
+        item.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="font-bold text-[11px] text-[var(--foreground)] flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full ${isAgentRunning ? "bg-amber-400 animate-ping" : "bg-emerald-400"}"></span>
+              ${s.name}
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="text-[10px] text-[var(--muted-foreground)] leading-snug">${s.role}</div>
+          <div class="pt-0.5 flex items-center justify-between text-[9px] text-[var(--muted-foreground)] font-mono border-t border-[var(--border)]/40 mt-1">
+            <span>Context: Isolated Container</span>
+            <span class="text-purple-400">0 Main Tokens Leaked</span>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function logDecision(msg) {
+      const log = document.getElementById("decision-log");
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement("div");
+      div.className = "leading-tight text-[10px]";
+      div.innerHTML = `<span class="text-[var(--muted-foreground)]">[${time}]</span> ${msg}`;
+      log.prepend(div);
+    }
+
+    // =========================================================================
+    // ACTIONS & CONTROLS
+    // =========================================================================
+    function selectPrompt(promptObj) {
+      activePrompt = promptObj;
+      activeStepIndex = 0;
+      queueMessages = generateQueue(activePrompt, followupCount);
+      renderPromptCards();
+      renderQueue();
+      renderSubagents();
+      logDecision(`Switched active prompt to: <strong>${promptObj.title}</strong> (${followupCount} follow-ups queued)`);
+    }
+
+    function stepAgent() {
+      if (activeStepIndex >= queueMessages.length) {
+        logDecision(`<span class="text-emerald-500 font-bold">🏁 Route Completed! All ${queueMessages.length} queued follow-ups executed successfully.</span>`);
+        document.getElementById("agent-status-badge").textContent = "FINISHED";
+        document.getElementById("agent-status-badge").className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-500 border border-emerald-500/40";
+        if (autoPlayInterval) {
+          clearInterval(autoPlayInterval);
+          autoPlayInterval = null;
+          document.getElementById("auto-play-btn").textContent = "⚡ Auto-Play All Queued Turns";
+        }
+        return;
+      }
+
+      // Mark current completed
+      queueMessages[activeStepIndex].status = "COMPLETED";
+      const completedMsg = queueMessages[activeStepIndex];
+      logDecision(`✔ Turn ${activeStepIndex + 1} finished: Agent completed "<strong>${completedMsg.title}</strong>"`);
+
+      activeStepIndex++;
+
+      if (activeStepIndex < queueMessages.length) {
+        queueMessages[activeStepIndex].status = "ACTIVE";
+        const nextMsg = queueMessages[activeStepIndex];
+        logDecision(`⚡ <strong>Stop Hook Intercepted:</strong> Dispatched turn ${activeStepIndex + 1} (<strong>${nextMsg.teamName}</strong>) &rarr; "<strong>${nextMsg.prompt.slice(0, 65)}...</strong>"`);
+        document.getElementById("agent-status-badge").textContent = `PROCESSING TURN ${activeStepIndex + 1}`;
+        document.getElementById("agent-status-badge").className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-500 border border-blue-500/40";
+      } else {
+        logDecision(`<span class="text-emerald-500 font-bold">🏁 All queued messages dispatched. Stop Hook returned {"decision": "allow"}.</span>`);
+        document.getElementById("agent-status-badge").textContent = "ALL TURNS COMPLETE";
+        document.getElementById("agent-status-badge").className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-500 border border-emerald-500/40";
+      }
+
+      renderQueue();
+      renderSubagents();
+    }
+
+    function toggleAutoPlay() {
+      const btn = document.getElementById("auto-play-btn");
+      if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+        btn.textContent = "⚡ Auto-Play All Queued Turns";
+        logDecision("⏸ Auto-play paused by user.");
+      } else {
+        btn.textContent = "⏸ Pause Auto-Play";
+        logDecision("▶ Auto-play started: advancing through queue every 1.8s...");
+        stepAgent();
+        autoPlayInterval = setInterval(() => {
+          if (activeStepIndex >= queueMessages.length) {
+            clearInterval(autoPlayInterval);
+            autoPlayInterval = null;
+            btn.textContent = "⚡ Auto-Play All Queued Turns";
+          } else {
+            stepAgent();
+          }
+        }, 1800);
+      }
+    }
+
+    function editPrompt(idx) {
+      const newPrompt = prompt("Edit prompt copy:", queueMessages[idx].prompt);
+      if (newPrompt && newPrompt.trim()) {
+        queueMessages[idx].prompt = newPrompt.trim();
+        renderQueue();
+        logDecision(`Edited Step ${idx + 1} prompt copy.`);
+      }
+    }
+
+    function deletePrompt(idx) {
+      queueMessages.splice(idx, 1);
+      if (activeStepIndex > idx) activeStepIndex--;
+      renderQueue();
+      renderSubagents();
+      logDecision(`Deleted Step ${idx + 1} from queue.`);
+    }
+
+    // =========================================================================
+    // EVENT LISTENERS INITIALIZATION
+    // =========================================================================
+    document.addEventListener("DOMContentLoaded", () => {
+      // Category tabs
+      document.querySelectorAll(".cat-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".cat-btn").forEach(b => {
+            b.className = "cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer transition active:scale-95";
+          });
+          btn.className = "cat-btn min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium border border-blue-500/30 bg-blue-500/10 text-blue-500 cursor-pointer transition active:scale-95";
+          currentCategory = btn.getAttribute("data-cat");
+          activePrompt = samplePrompts[currentCategory][0];
+          activeStepIndex = 0;
+          queueMessages = generateQueue(activePrompt, followupCount);
+          renderPromptCards();
+          renderQueue();
+          renderSubagents();
+          logDecision(`Category switched to: <strong>${currentCategory.toUpperCase()}</strong>`);
+        });
+      });
+
+      // Follow-up count buttons
+      document.querySelectorAll(".count-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".count-btn").forEach(b => {
+            b.className = "count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer";
+          });
+          btn.className = "count-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-500 font-bold active:scale-95 transition cursor-pointer";
+          followupCount = parseInt(btn.getAttribute("data-count"), 10);
+          activeStepIndex = 0;
+          queueMessages = generateQueue(activePrompt, followupCount);
+          renderQueue();
+          renderSubagents();
+          logDecision(`Queue count updated to <strong>${followupCount} follow-up messages</strong>.`);
+        });
+      });
+
+      // Directive selector buttons
+      document.querySelectorAll(".dir-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".dir-btn").forEach(b => {
+            b.className = "dir-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] active:scale-95 transition cursor-pointer";
+          });
+          btn.className = "dir-btn min-h-[36px] px-2.5 py-1 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-500 font-bold active:scale-95 transition cursor-pointer";
+          activeDirective = btn.getAttribute("data-directive");
+          queueMessages = generateQueue(activePrompt, followupCount);
+          renderQueue();
+          renderSubagents();
+          const dText = getDirectiveText(activeDirective);
+          logDecision(`Smart subagent directive changed to: <strong>${activeDirective.toUpperCase()}</strong> ${dText ? `("${dText}")` : "(None)"}`);
+        });
+      });
+
+      // Accordion toggle
+      document.getElementById("queue-accordion-header").addEventListener("click", () => {
+        isAccordionOpen = !isAccordionOpen;
+        const chevron = document.getElementById("chevron-icon");
+        chevron.style.transform = isAccordionOpen ? "rotate(0deg)" : "rotate(-90deg)";
+        renderQueue();
+      });
+
+      // Step agent button
+      document.getElementById("step-agent-btn").addEventListener("click", stepAgent);
+
+      // Auto play button
+      document.getElementById("auto-play-btn").addEventListener("click", toggleAutoPlay);
+
+      // Custom prompt apply
+      document.getElementById("apply-custom-btn").addEventListener("click", () => {
+        const input = document.getElementById("custom-prompt-input");
+        const val = input.value.trim();
+        if (!val) return;
+
+        const customObj = {
+          id: "custom-" + Date.now(),
+          title: val.slice(0, 30) + "...",
+          prompt: val,
+          domain: val.toLowerCase().includes("code") || val.toLowerCase().includes("api") ? "code" : "research",
+          subject: val.slice(0, 40),
+          subagents: [
+            { name: "Domain Specialist A", role: "Primary Investigator" },
+            { name: "Adversarial Reviewer B", role: "Refuter & Stress Tester" },
+            { name: "Executive Architect C", role: "Synthesis & Delivery" }
+          ]
+        };
+        selectPrompt(customObj);
+        input.value = "";
+      });
+
+      // Quick add prompt
+      document.getElementById("quick-add-btn").addEventListener("click", () => {
+        const input = document.getElementById("quick-add-input");
+        const val = input.value.trim();
+        if (!val) return;
+
+        queueMessages.push({
+          id: `msg-${queueMessages.length}`,
+          title: "Custom Follow-Up",
+          prompt: val,
+          badge: "Custom Prompt",
+          domain: activePrompt.domain,
+          status: "PENDING"
+        });
+        input.value = "";
+        renderQueue();
+        logDecision(`Added custom message to queue: "<em>${val.slice(0, 50)}...</em>"`);
+      });
+
+      // Human preemption button
+      document.getElementById("human-interrupt-btn").addEventListener("click", () => {
+        if (autoPlayInterval) {
+          clearInterval(autoPlayInterval);
+          autoPlayInterval = null;
+          document.getElementById("auto-play-btn").textContent = "⚡ Auto-Play All Queued Turns";
+        }
+        document.getElementById("agent-status-badge").textContent = "PAUSED (HUMAN PREEMPTION)";
+        document.getElementById("agent-status-badge").className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-500 border border-amber-500/40";
+        logDecision(`<span class="text-amber-500 font-bold">⚠️ Human Preemption Detected:</span> User typed into chat box. Queue paused cleanly.`);
+      });
+
+      // Reset button
+      document.getElementById("reset-all-btn").addEventListener("click", () => {
+        if (autoPlayInterval) {
+          clearInterval(autoPlayInterval);
+          autoPlayInterval = null;
+        }
+        currentCategory = "human";
+        activePrompt = samplePrompts.human[0];
+        followupCount = 5;
+        activeStepIndex = 0;
+        queueMessages = generateQueue(activePrompt, followupCount);
+        document.getElementById("agent-status-badge").textContent = "IDLE (Ready for Turn)";
+        document.getElementById("agent-status-badge").className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20";
+        renderPromptCards();
+        renderQueue();
+        renderSubagents();
+        logDecision("Demo reset to initial state.");
+      });
+
+      // =======================================================================
+      // THEME & IOS SETTINGS MANAGEMENT
+      // =======================================================================
+      let currentTheme = localStorage.getItem("agy_theme") || "system";
+
+      function getResolvedTheme(mode) {
+        if (mode === "system") {
+          return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        return mode;
+      }
+
+      function applyTheme(mode, save = true) {
+        currentTheme = mode;
+        if (save) {
+          localStorage.setItem("agy_theme", mode);
+        }
+        const resolved = getResolvedTheme(mode);
+        const root = document.documentElement;
+
+        if (resolved === "dark") {
+          root.setAttribute("data-theme", "dark");
+          root.classList.add("dark");
+        } else {
+          root.removeAttribute("data-theme");
+          root.classList.remove("dark");
+        }
+
+        // Update Quick Header Toggle
+        const toggleIcon = document.getElementById("theme-toggle-icon");
+        const toggleLabel = document.getElementById("theme-toggle-label");
+        if (toggleIcon && toggleLabel) {
+          if (resolved === "dark") {
+            toggleIcon.textContent = "☀️";
+            toggleLabel.textContent = "Light";
+          } else {
+            toggleIcon.textContent = "🌙";
+            toggleLabel.textContent = "Dark";
+          }
+        }
+
+        // Update iOS Settings Switch
+        const iosSwitch = document.getElementById("ios-theme-switch");
+        const iosKnob = document.getElementById("ios-switch-knob");
+        if (iosSwitch && iosKnob) {
+          if (resolved === "dark") {
+            iosSwitch.setAttribute("aria-checked", "true");
+            iosSwitch.style.backgroundColor = "var(--ios-switch-active)";
+            iosKnob.style.transform = "translateX(20px)";
+          } else {
+            iosSwitch.setAttribute("aria-checked", "false");
+            iosSwitch.style.backgroundColor = "var(--ios-switch-bg)";
+            iosKnob.style.transform = "translateX(0px)";
+          }
+        }
+
+        // Update iOS Segmented Control
+        document.querySelectorAll(".theme-seg-btn").forEach(btn => {
+          if (btn.getAttribute("data-theme-val") === mode) {
+            btn.className = "theme-seg-btn min-h-[44px] rounded-lg text-xs font-bold bg-[var(--card)] text-[var(--foreground)] shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500 border border-[var(--border)]";
+          } else {
+            btn.className = "theme-seg-btn min-h-[44px] rounded-lg text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] flex items-center justify-center gap-1.5 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-500";
+          }
+        });
+      }
+
+      // Quick theme toggle click
+      document.getElementById("quick-theme-toggle").addEventListener("click", () => {
+        const resolved = getResolvedTheme(currentTheme);
+        const next = resolved === "dark" ? "light" : "dark";
+        applyTheme(next);
+      });
+
+      // iOS theme switch click
+      document.getElementById("ios-theme-switch").addEventListener("click", () => {
+        const resolved = getResolvedTheme(currentTheme);
+        const next = resolved === "dark" ? "light" : "dark";
+        applyTheme(next);
+      });
+
+      // iOS Segmented control buttons
+      document.querySelectorAll(".theme-seg-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          applyTheme(btn.getAttribute("data-theme-val"));
+        });
+      });
+
+      // System media query change listener
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (currentTheme === "system") {
+          applyTheme("system", false);
+        }
+      });
+
+      // Modal open/close
+      const settingsModal = document.getElementById("ios-settings-modal");
+      document.getElementById("open-settings-btn").addEventListener("click", () => {
+        settingsModal.classList.remove("hidden");
+        settingsModal.classList.add("flex");
+      });
+      document.getElementById("close-settings-btn").addEventListener("click", () => {
+        settingsModal.classList.add("hidden");
+        settingsModal.classList.remove("flex");
+      });
+      settingsModal.addEventListener("click", (e) => {
+        if (e.target === settingsModal) {
+          settingsModal.classList.add("hidden");
+          settingsModal.classList.remove("flex");
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !settingsModal.classList.contains("hidden")) {
+          settingsModal.classList.add("hidden");
+          settingsModal.classList.remove("flex");
+        }
+      });
+
+      // Initialize theme on page load
+      applyTheme(currentTheme, false);
+
+      // Initial render
+      queueMessages = generateQueue(activePrompt, followupCount);
+      renderPromptCards();
+      renderQueue();
+      renderSubagents();
+    });
+  </script>
+</body>
+</html>

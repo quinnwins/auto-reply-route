@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Reply Route Stepping Deck</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-2">
+  <div class="bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl p-5 shadow-sm max-w-2xl mx-auto space-y-4">
+    
+    <!-- Header -->
+    <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🚀</span>
+          <h2 class="text-[var(--foreground)] font-semibold text-base tracking-tight">Auto-Reply Map: Route Dispatcher</h2>
+          <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-[var(--primary)] text-[var(--primary-foreground)]">Live Queue</span>
+        </div>
+        <p class="text-[var(--muted-foreground)] text-xs mt-1">Pre-stage prompts into Antigravity so they queue up and execute sequentially.</p>
+      </div>
+      <div class="text-right">
+        <span id="bridge-status-pill" class="text-[10px] font-mono font-semibold px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">● Ready</span>
+      </div>
+    </div>
+
+    <!-- PRIMARY ACTION: 1-Click Copy All Prompts as Route -->
+    <div class="bg-[var(--primary)]/10 border border-[var(--primary)]/20 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="space-y-0.5 text-left w-full sm:w-auto">
+        <div class="flex items-center gap-2">
+          <span class="text-base">⚡</span>
+          <h3 class="font-bold text-xs sm:text-sm text-[var(--foreground)]">One-Click Route Copy</h3>
+        </div>
+        <p class="text-[11px] text-[var(--muted-foreground)]">Copy all 6 prompts formatted as a sequential route.</p>
+      </div>
+      <button id="send-all-btn" class="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl font-bold text-xs bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md hover:opacity-95 active:scale-95 transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--primary)] whitespace-nowrap">
+        <span id="send-all-icon">📋</span>
+        <span id="send-all-text">Copy All 6 Prompts as Route</span>
+      </button>
+    </div>
+
+    <!-- Step Chips Rail (44px touch targets) -->
+    <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none" id="chips-container">
+      <!-- Injected by JavaScript -->
+    </div>
+
+    <!-- Active Step Card -->
+    <div class="bg-[var(--background)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 id="active-step-title" class="font-semibold text-sm text-[var(--foreground)]">1. Code Feature Cleanly</h3>
+        <span id="active-step-badge" class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-semibold">Rank 1: Primary</span>
+      </div>
+
+      <!-- Prompt Editor Box -->
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between">
+          <label for="prompt-display" class="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider flex items-center gap-2">
+            <span>✏️ Prompt Instruction (Click to edit)</span>
+            <span id="edit-indicator" class="hidden text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Customized</span>
+          </label>
+          <button id="reset-prompt-btn" type="button" class="hidden text-[11px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline cursor-pointer py-1 px-2 rounded hover:bg-[var(--secondary)] transition-colors duration-150">
+            Reset to default
+          </button>
+        </div>
+        <textarea id="prompt-display" rows="5" class="w-full text-xs font-mono bg-[var(--card)] border border-[var(--border)] rounded-lg p-3 text-[var(--foreground)] leading-relaxed focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent focus:outline-none transition-all duration-150 resize-y shadow-inner hover:border-[var(--muted-foreground)]/40" placeholder="Type or customize your prompt instruction here..."></textarea>
+      </div>
+
+      <!-- Alternative Branches Pill Row -->
+      <div class="space-y-1">
+        <label class="text-[11px] font-medium text-[var(--muted-foreground)]">Branch Alternatives:</label>
+        <div class="flex flex-wrap gap-1.5" id="branches-container">
+          <!-- Injected by JS -->
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex flex-col sm:flex-row items-center justify-between pt-2 border-t border-[var(--border)] gap-2">
+        <button id="send-single-btn" class="w-full sm:flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] shadow hover:opacity-90 active:scale-95 transition duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--primary)]">
+          <span id="send-single-icon">📋</span>
+          <span id="send-single-text">Copy Step 1 to Clipboard</span>
+        </button>
+
+        <button id="next-step-btn" class="w-full sm:w-auto min-h-[44px] px-4 py-2 text-xs font-semibold rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--secondary)] active:scale-95 transition duration-150 cursor-pointer flex items-center justify-center gap-1">
+          Next Step ➔
+        </button>
+      </div>
+    </div>
+
+    <!-- Status Helper -->
+    <div class="flex flex-col sm:flex-row items-center justify-between text-[11px] text-[var(--muted-foreground)] px-1 gap-1">
+      <span id="status-message">💡 Click <strong>Copy Step</strong>, then press <strong>⌘V</strong> in the chat input below to send.</span>
+      <span class="font-mono text-[10px]">Instant & zero-freeze</span>
+    </div>
+  </div>
+
+  <script>
+    const stepsData = [
+      {
+        idx: 1,
+        emoji: "🚀",
+        title: "Code Feature Cleanly",
+        primary: "Code this feature cleanly with minimal blast radius. Implement the core functionality, domain models, and interfaces specified in the user story. Stay strictly focused on the user's core goal: avoid speculative rabbit holes, unrequested dependencies, or premature refactors. Preserve existing architecture and ensure strict typing.",
+        branches: [
+          { rank: 1, label: "Primary Forward", text: "Code this feature cleanly with minimal blast radius. Implement the core functionality, domain models, and interfaces specified in the user story. Stay strictly focused on the user's core goal: avoid speculative rabbit holes, unrequested dependencies, or premature refactors. Preserve existing architecture and ensure strict typing." },
+          { rank: 2, label: "QA Defensive", text: "Implement strict input validation, invariants, boundary checks, and defensive exception handling from the start." },
+          { rank: 3, label: "Quick Spike", text: "Build a minimal working prototype in scratch first to validate core algorithmic feasibility." },
+          { rank: 4, label: "Standard Lib Only", text: "Implement using pure standard library components without adding new package dependencies." }
+        ]
+      },
+      {
+        idx: 2,
+        emoji: "🛡️",
+        title: "3-Person QA Review",
+        primary: "Review with a 3 person subagent QA team and fix. Deploy the 3-person QA team (Edge Case Auditor, Security Auditor, Test Coverage Specialist) to inspect the newly implemented code. Audit boundary conditions, race conditions, auth/injection vulnerabilities, and missing assertions. Fix all identified defects immediately.",
+        branches: [
+          { rank: 1, label: "Primary QA Pass", text: "Review with a 3 person subagent QA team and fix. Audit boundary conditions, race conditions, auth/injection vulnerabilities, and missing assertions. Fix all identified defects immediately." },
+          { rank: 2, label: "Strict Security", text: "Focus the entire audit on injection vectors, path traversal, auth bypasses, and secret exposure." },
+          { rank: 3, label: "Chaos & Races", text: "Simulate high-concurrency races, timeout disruptions, and resource exhaustion edge cases." },
+          { rank: 4, label: "Coverage Audit", text: "Focus on missing test assertions, mutation testing, and mock realism." }
+        ]
+      },
+      {
+        idx: 3,
+        emoji: "🛡️",
+        title: "2nd Independent QA Pass",
+        primary: "Send this through another 3 person subagent QA team and fix. Deploy a second, fresh 3-person subagent QA team with zero cognitive bias from the first review. Adversarially probe error recovery paths, state transitions, exception handling, and mock realism. Fix all newly discovered flaws.",
+        branches: [
+          { rank: 1, label: "Independent Review", text: "Send this through another 3 person subagent QA team and fix. Deploy a second, fresh 3-person subagent QA team with zero cognitive bias from the first review. Adversarially probe error recovery paths, state transitions, exception handling, and mock realism." },
+          { rank: 2, label: "Stress & Invariants", text: "Probe edge-case state mutations and boundary condition fuzzing." },
+          { rank: 3, label: "Sandbox Audit", text: "Audit external library calls, system subprocess isolation, and network boundaries." },
+          { rank: 4, label: "Contract Conformance", text: "Verify typed interfaces, schema validation, and serialization round-trips." }
+        ]
+      },
+      {
+        idx: 4,
+        emoji: "👔",
+        title: "Executive Audit & Tower of Babel Check",
+        primary: "Send this to an executive team, were there any compromises taken or rabbit holes gone down that an executive would reject, fix if so. Deploy the Executive Review Team (Simplicity Auditor, Technical Debt Officer, Product Director) to scrutinize architectural decisions. Make sure we have not built a tower of babel here: be completely honest about where things are at. Confirm we are strictly on track with the original goal without unnecessary rabbit holes or speculative overengineering. Eliminate temporary workarounds, excessive boilerplate, tangent refactors, and confusing abstractions.",
+        branches: [
+          { rank: 1, label: "Executive Review", text: "Deploy the Executive Review Team. Make sure we have not built a tower of babel here: be completely honest about where things are at. Confirm we are strictly on track with the original goal without unnecessary rabbit holes or speculative overengineering. Eliminate temporary hacks, unhandled TODOs, and confusing abstractions." },
+          { rank: 2, label: "Strict Security Audit", text: "Pivot executive review into a high-stakes security, vulnerability, and risk governance audit." },
+          { rank: 3, label: "Simplicity First", text: "Aggressively prune unnecessary layers of abstraction, flatten nesting, and apply the living-room standard." },
+          { rank: 4, label: "Zero Technical Debt", text: "Eliminate temporary hacks, unhandled TODOs, and brittle workarounds." }
+        ]
+      },
+      {
+        idx: 5,
+        emoji: "🔌",
+        title: "Wiring Logic & Codebase Sync",
+        primary: "Review a final time with a subagent team checking for any bugs, wiring logic, feature sync with existing codebase. Deploy the System Integration Team (Wiring Logic Auditor, Regressions Checker, State Sync Specialist) to verify holistic codebase coherence. Check caller/callee signatures, event dispatchers, package exports, and database/state consistency.",
+        branches: [
+          { rank: 1, label: "System Wiring", text: "Review a final time with a subagent team checking for any bugs, wiring logic, feature sync with existing codebase. Check caller/callee signatures, event dispatchers, package exports, and database/state consistency." },
+          { rank: 2, label: "Wiring Deep Audit", text: "Trace caller/callee signatures, public exports, and parameter forwarding." },
+          { rank: 3, label: "Full Regressions", text: "Run complete integration and regression suite against existing components." },
+          { rank: 4, label: "State Sync", text: "Verify multi-threaded persistence, atomic writes, and cache coherence." }
+        ]
+      },
+      {
+        idx: 6,
+        emoji: "📸",
+        title: "Visual Proof & Walkthrough Evidence",
+        primary: "Send me screenshot evidence of this feature as implemented, test it out on web or simulator or whatever, and review whether anything was found in your screenshots or walkthrough that needs to be fixed. Deploy the Visual Proof Team (Screenshot / Simulator Verifier, Walkthrough Auditor) to capture visual proof. Inspect screenshots for 4/8pt rhythm, concentric radii, touch ergonomics (>=44px), contrast, and layout shift.",
+        branches: [
+          { rank: 1, label: "Visual Proof", text: "Send me screenshot evidence of this feature as implemented, test it out on web or simulator or whatever, and review whether anything was found in your screenshots or walkthrough that needs to be fixed. Inspect for craft defects and fix any flaws." },
+          { rank: 2, label: "Headless Browser", text: "Run automated browser capture for responsive viewports and check console error logs." },
+          { rank: 3, label: "Simulator Walkthrough", text: "Capture mobile simulator interactions across landscape and portrait orientations." },
+          { rank: 4, label: "6-Lens Craft Audit", text: "Audit screenshots for 4/8pt rhythm, concentric radii, and 44x44px tap targets." }
+        ]
+      }
+    ];
+
+    // Track original prompt text for instant 1-click reset
+    stepsData.forEach(s => {
+      s.branches.forEach(b => {
+        b.originalText = b.text;
+      });
+    });
+
+    let currentStepIdx = 0;
+    let selectedBranchRank = 1;
+    const BRIDGE_URL = "http://127.0.0.1:28491";
+
+    function checkBridge() {
+      fetch(`${BRIDGE_URL}/status`)
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById("bridge-status-pill").textContent = "● Bridge Connected";
+          document.getElementById("bridge-status-pill").className = "text-[10px] font-mono font-semibold px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20";
+        })
+        .catch(() => {
+          document.getElementById("bridge-status-pill").textContent = "○ Bridge Offline";
+          document.getElementById("bridge-status-pill").className = "text-[10px] font-mono font-semibold px-2 py-1 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20";
+        });
+    }
+
+    function renderChips() {
+      const container = document.getElementById("chips-container");
+      container.innerHTML = "";
+      stepsData.forEach((step, i) => {
+        const isCurrent = i === currentStepIdx;
+        const btn = document.createElement("button");
+        btn.className = `min-h-[44px] px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 whitespace-nowrap transition-all duration-150 cursor-pointer active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:outline-none ${
+          isCurrent 
+            ? "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm font-semibold" 
+            : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 border border-[var(--border)]"
+        }`;
+        btn.innerHTML = `<span>${step.emoji}</span><span>${i + 1}. ${step.title.split(" ")[0]}</span>`;
+        btn.onclick = () => {
+          currentStepIdx = i;
+          selectedBranchRank = 1;
+          renderActiveStep();
+          renderChips();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function renderActiveStep() {
+      const step = stepsData[currentStepIdx];
+      document.getElementById("active-step-title").textContent = `${step.idx}. ${step.title}`;
+      
+      const activeBranch = step.branches.find(b => b.rank === selectedBranchRank) || step.branches[0];
+      document.getElementById("active-step-badge").textContent = `Rank ${activeBranch.rank}: ${activeBranch.label}`;
+
+      const promptArea = document.getElementById("prompt-display");
+      promptArea.value = activeBranch.text;
+
+      const editBadge = document.getElementById("edit-indicator");
+      const resetBtn = document.getElementById("reset-prompt-btn");
+      const isEdited = activeBranch.text !== activeBranch.originalText;
+      if (isEdited) {
+        editBadge.classList.remove("hidden");
+        resetBtn.classList.remove("hidden");
+      } else {
+        editBadge.classList.add("hidden");
+        resetBtn.classList.add("hidden");
+      }
+
+      // Render branch pills
+      const bContainer = document.getElementById("branches-container");
+      bContainer.innerHTML = "";
+      step.branches.forEach(b => {
+        const isBranchActive = b.rank === selectedBranchRank;
+        const isBranchCustom = b.text !== b.originalText;
+        const pill = document.createElement("button");
+        pill.className = `min-h-[32px] px-2.5 py-1 text-[11px] rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+          isBranchActive 
+            ? "bg-[var(--foreground)] text-[var(--background)] font-semibold" 
+            : "bg-[var(--card)] text-[var(--muted-foreground)] border border-[var(--border)] hover:text-[var(--foreground)]"
+        }`;
+        pill.innerHTML = `<span>${b.rank}. ${b.label}</span>${isBranchCustom ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>' : ''}`;
+        pill.onclick = () => {
+          selectedBranchRank = b.rank;
+          renderActiveStep();
+        };
+        bContainer.appendChild(pill);
+      });
+
+      document.getElementById("send-single-text").textContent = `Send Step ${step.idx} to Chat`;
+    }
+
+    // Live textarea input listener: updates active step prompt in memory
+    const promptInput = document.getElementById("prompt-display");
+    promptInput.addEventListener("input", () => {
+      const step = stepsData[currentStepIdx];
+      const activeBranch = step.branches.find(b => b.rank === selectedBranchRank) || step.branches[0];
+      activeBranch.text = promptInput.value;
+      const isEdited = activeBranch.text !== activeBranch.originalText;
+      const editBadge = document.getElementById("edit-indicator");
+      const resetBtn = document.getElementById("reset-prompt-btn");
+      if (isEdited) {
+        editBadge.classList.remove("hidden");
+        resetBtn.classList.remove("hidden");
+      } else {
+        editBadge.classList.add("hidden");
+        resetBtn.classList.add("hidden");
+      }
+    });
+
+    // Reset prompt button listener
+    document.getElementById("reset-prompt-btn").addEventListener("click", () => {
+      const step = stepsData[currentStepIdx];
+      const activeBranch = step.branches.find(b => b.rank === selectedBranchRank) || step.branches[0];
+      activeBranch.text = activeBranch.originalText;
+      renderActiveStep();
+    });
+
+    // 1-Click Copy All Prompts as Route Handler
+    document.getElementById("send-all-btn").onclick = () => {
+      const btn = document.getElementById("send-all-btn");
+      const icon = document.getElementById("send-all-icon");
+      const text = document.getElementById("send-all-text");
+      const msg = document.getElementById("status-message");
+
+      const fullRouteText = stepsData.map((s, idx) => {
+        const branch = s.branches.find(b => b.rank === 1) || s.branches[0];
+        return `${idx + 1}. ${s.title}\n   ${branch.text}`;
+      }).join("\n\n");
+
+      navigator.clipboard.writeText(fullRouteText).then(() => {
+        icon.textContent = "✔";
+        text.textContent = "All 6 Steps Copied!";
+        msg.textContent = "✅ All 6 steps copied to clipboard as a sequential route! Click the chat box and press ⌘V to run.";
+        setTimeout(() => {
+          icon.textContent = "📋";
+          text.textContent = "Copy All 6 Prompts as Route";
+        }, 3000);
+      });
+    };
+
+    // Copy Single Step Handler (copies current edited textarea content)
+    document.getElementById("send-single-btn").onclick = () => {
+      const icon = document.getElementById("send-single-icon");
+      const text = document.getElementById("send-single-text");
+      const step = stepsData[currentStepIdx];
+      const promptToCopy = document.getElementById("prompt-display").value;
+      const msg = document.getElementById("status-message");
+
+      navigator.clipboard.writeText(promptToCopy).then(() => {
+        icon.textContent = "✔";
+        text.textContent = `Step ${step.idx} Copied! Press ⌘V in Chat`;
+        msg.textContent = `💡 Step ${step.idx} copied to clipboard! Click the chat input box below and press ⌘V to send.`;
+        setTimeout(() => {
+          icon.textContent = "📋";
+          text.textContent = `Copy Step ${step.idx} to Clipboard`;
+        }, 3000);
+      });
+    };
+
+    document.getElementById("next-step-btn").onclick = () => {
+      currentStepIdx = (currentStepIdx + 1) % stepsData.length;
+      selectedBranchRank = 1;
+      renderActiveStep();
+      renderChips();
+    };
+
+    // Initial load
+    renderChips();
+    renderActiveStep();
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "agy-route hook",
+        "timeout": 30
+      }
+    ]
+  }
+}
