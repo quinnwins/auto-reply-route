@@ -165,3 +165,14 @@ def test_cli_dispatches_literal_batch_through_real_subprocess(tmp_path):
     assert [json.loads(line)[-1] for line in recorded.read_text().splitlines()] == [
         "/q (Follow-up 1/2) Keep $(literal) text", "/q (Follow-up 2/2) Keep `literal` text",
     ]
+
+
+def test_inherited_codex_queue_methods_raise_not_implemented(batch_fixture):
+    batch, _ = batch_fixture
+    with pytest.raises(NotImplementedError, match="Use stage_batch, enter, and finish_step"):
+        batch.start("Test objective")
+    with pytest.raises(NotImplementedError, match="Use stage_batch, enter, and finish_step"):
+        batch.stage("Test prompt")
+    with pytest.raises(NotImplementedError, match="Use stage_batch, enter, and finish_step"):
+        batch.finish()
+

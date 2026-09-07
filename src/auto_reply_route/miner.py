@@ -4,7 +4,6 @@ import collections
 from dataclasses import dataclass, field
 import enum
 import json
-import math
 from pathlib import Path
 import re
 from typing import Any, Optional
@@ -114,6 +113,15 @@ class PromptNormalizer:
         re.compile(r"\b(?:i\s+think|i\s+believe|just|simply)\b", re.IGNORECASE),
     ]
 
+    _BUDGET_TECH_GUARD_1 = re.compile(r"^\d+(?:[a-zA-Z]{1,3}\b|_\w+)")
+    _BUDGET_TECH_GUARD_2 = re.compile(r"^\d+-(?!steps?\b)[a-zA-Z]+")
+    _BUDGET_HTTP_STATUS = re.compile(r"^(?:404|500|502|503|200|201|401|403)\b")
+    _BUDGET_BRACKET = re.compile(r"^\[\s*([1-9]|1[0-2])\s*\]\s*(.*)$")
+    _BUDGET_COLON = re.compile(r"^([1-9]|1[0-2])\s*(?:steps?)?\s*[:\-]\s*(.*)$")
+    _BUDGET_LEAD_INT = re.compile(r"^([1-9]|1[0-2])\s+([a-zA-Z].*)$")
+    _BUDGET_TRAILING_SEP = re.compile(r"^[:\-]\s*")
+    _NON_ACTION_UNITS = frozenset({"fa", "d", "k", "g", "fps", "ms", "s", "min", "sec", "px", "rem", "em", "pt", "x"})
+
     @classmethod
     def extract_step_budget(cls, raw_prompt: str, default: int = 1) -> tuple[int, str]:
         """Extracts leading step budget (1-12) from prompt if present. Defaults to 1 step.
@@ -131,31 +139,31 @@ class PromptNormalizer:
         clean = raw_prompt.strip()
 
         # Guard against technical false positives (e.g. 2FA, 3D, 4K, 5G, 404, 500, 8-bit, 4-bit, 3-tier)
-        if re.match(r"^\d+(?:[a-zA-Z]{1,3}\b|_\w+)", clean):
-            return default, clean
-        if re.match(r"^\d+-(?!steps?\b)[a-zA-Z]+", clean):
-            return default, clean
-        if re.match(r"^(?:404|500|502|503|200|201|401|403)\b", clean):
+        if (
+            cls._BUDGET_TECH_GUARD_1.match(clean)
+            or cls._BUDGET_TECH_GUARD_2.match(clean)
+            or cls._BUDGET_HTTP_STATUS.match(clean)
+        ):
             return default, clean
 
         # Pattern 1: Bracketed "[4] ...", "[12] ..."
-        m_bracket = re.match(r"^\[([1-9]|1[0-2])\]\s*(.*)$", clean)
+        m_bracket = cls._BUDGET_BRACKET.match(clean)
         if m_bracket:
             remainder = m_bracket.group(2).strip()
             # Clean up optional trailing separator after bracket e.g. "[12]: foo" -> "foo"
-            remainder = re.sub(r"^[:\-]\s*", "", remainder).strip()
+            remainder = cls._BUDGET_TRAILING_SEP.sub("", remainder).strip()
             return int(m_bracket.group(1)), remainder
 
         # Pattern 2: Colon or 'steps:' prefix e.g. "4: ...", "4 steps: ..."
-        m_colon = re.match(r"^([1-9]|1[0-2])\s*(?:steps?)?\s*[:\-]\s*(.*)$", clean)
+        m_colon = cls._BUDGET_COLON.match(clean)
         if m_colon:
             return int(m_colon.group(1)), m_colon.group(2).strip()
 
         # Pattern 3: Leading integer followed by an action verb e.g. "4 build ...", "12 implement ..."
-        m_lead = re.match(r"^([1-9]|1[0-2])\s+([a-zA-Z].*)$", clean)
+        m_lead = cls._BUDGET_LEAD_INT.match(clean)
         if m_lead:
             first_word = m_lead.group(2).split()[0].lower() if m_lead.group(2) else ""
-            if first_word not in {"fa", "d", "k", "g", "fps", "ms", "s", "min", "sec", "px", "rem", "em", "pt", "x"}:
+            if first_word not in cls._NON_ACTION_UNITS:
                 return int(m_lead.group(1)), m_lead.group(2).strip()
 
         return default, clean
@@ -857,20 +865,26 @@ class PromptRouteMiner:
 
     def collect_transcript_files(self, transcript_paths: list[str], max_files: int = 50) -> list[Path]:
         """Expands paths to files or recursively scans directories for JSONL logs."""
+        seen: set[Path] = set()
         files: list[Path] = []
         for p_str in transcript_paths:
             p = Path(p_str)
             if p.is_file():
-                if p.suffix in (".jsonl", ".json"):
+                if p.suffix in (".jsonl", ".json") and p not in seen:
                     files.append(p)
+                    seen.add(p)
             elif p.is_dir():
                 found = list(p.rglob("transcript.jsonl"))
                 if not found:
                     found = [f for f in p.rglob("*.jsonl") if not f.name.endswith(".tmp")]
                 # Sort by modification time descending so recent sessions take priority
                 found.sort(key=lambda x: x.stat().st_mtime if x.exists() else 0, reverse=True)
-                files.extend(found[:max_files])
-        return sorted(list(set(files)), key=lambda x: x.stat().st_mtime if x.exists() else 0, reverse=True)
+                for f in found[:max_files]:
+                    if f not in seen:
+                        files.append(f)
+                        seen.add(f)
+        files.sort(key=lambda x: x.stat().st_mtime if x.exists() else 0, reverse=True)
+        return files[:max_files]
 
     def mine_transcripts(self, transcript_paths: list[str]) -> list[dict[str, Any]]:
         """Mines transcripts to discover canonical route paths and diverse 4-way branching options."""

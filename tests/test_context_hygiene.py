@@ -485,3 +485,38 @@ def test_pruner_instance_full_workflow():
     reduction = pruner.calculate_token_reduction(steps, pruned)
     assert reduction["saved_chars"] > 0
     assert reduction["reduction_percent"] >= 70.0
+
+
+def test_embedded_tool_calls_dynamic_status_and_log_ref():
+    """Verify embedded tool_calls inside assistant steps preserve dynamic status and log references."""
+    steps = [
+        {"type": "USER_INPUT", "content": "Execute builds"},
+        {
+            "type": "PLANNER_RESPONSE",
+            "tool_calls": [
+                {
+                    "name": "run_command",
+                    "args": {"CommandLine": "make test"},
+                    "output": "FAILED: assert False\n" * 10,
+                    "status": "Failed",
+                    "disk_log_path": "/var/log/build_err.log",
+                },
+                {
+                    "name": "view_file",
+                    "args": {"AbsolutePath": "/repo/src/lib.py"},
+                    "output": "line " * 50,
+                    "is_error": True,
+                },
+            ],
+            "content": "Running tests now.",
+        },
+        {"type": "PLANNER_RESPONSE", "content": "All complete."},
+    ]
+    pruned = prune_turn_transcript(steps, completed_turn_cutoff=1)
+    call0_receipt = pruned[1]["tool_calls"][0]["output"]
+    assert "Status: Failed" in call0_receipt
+    assert "Log Ref: /var/log/build_err.log" in call0_receipt
+
+    call1_receipt = pruned[1]["tool_calls"][1]["output"]
+    assert "Status: Failed" in call1_receipt
+

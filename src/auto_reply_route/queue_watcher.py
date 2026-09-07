@@ -6,8 +6,6 @@ human-readable terminal status cards as turns complete and subagent teams report
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -17,6 +15,8 @@ import time
 from typing import Any, Optional
 
 from auto_reply_route.models import MessageQueueManifest, QueuedMessage, QueuedMessageStatus
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 
 def _supports_color() -> bool:
@@ -32,7 +32,7 @@ def _color(code: str, text: str) -> str:
     """Format text with ANSI color code if supported."""
     if not _supports_color():
         return text
-    return f"[{code}m{text}[0m"
+    return f"\x1b[{code}m{text}\x1b[0m"
 
 
 def _bold(text: str) -> str:
@@ -65,6 +65,22 @@ def _magenta(text: str) -> str:
 
 def _dim(text: str) -> str:
     return _color("2", text)
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI escape sequences from text to calculate visible length."""
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _pad_line(content: str, width: int) -> str:
+    """Pad content to target visual width, ignoring non-printing ANSI escape sequences."""
+    clean = _strip_ansi(content)
+    visible_len = len(clean)
+    if visible_len > width:
+        content = clean[: max(0, width - 3)] + "..."
+        visible_len = len(content)
+    padding = max(0, width - visible_len)
+    return content + (" " * padding)
 
 
 class QueueWatcher:
@@ -145,70 +161,84 @@ class QueueWatcher:
         if manifest is None:
             manifest = self.load_manifest()
 
-        card_width = 68
+        card_width = 74
         border_h = "─" * card_width
         border_top = f"┌{border_h}┐"
         border_mid = f"├{border_h}┤"
         border_bot = f"└{border_h}┘"
 
+        def _box_line(content: str) -> str:
+            return f"│ {_pad_line(content, card_width - 2)} │"
+
         lines: list[str] = []
         lines.append(border_top)
 
         # Header Title
-        title_text = f" ⚡ QUEUED MESSAGES MONITOR — Scope: {self.conversation_id} "
-        lines.append(f"│ {_bold(_blue(title_text)):<{card_width + 10}} │")
+        title_text = f"⚡ QUEUED MESSAGES MONITOR — Scope: {self.conversation_id}"
+        if len(title_text) > card_width - 2:
+            title_text = title_text[: card_width - 5] + "..."
+        lines.append(_box_line(_bold(_blue(title_text))))
         lines.append(border_mid)
 
         if not manifest or manifest.is_empty:
-            lines.append(f"│ {_dim('No active queued messages in session.'):<{card_width + 10}} │")
-            lines.append(f"│ {_dim(f'Target: {self.queue_file.name}'):<{card_width + 10}} │")
+            lines.append(_box_line(_dim("No active queued messages in session.")))
+            target_str = f"Target: {self.queue_file.name}"
+            if len(target_str) > card_width - 2:
+                target_str = target_str[: card_width - 5] + "..."
+            lines.append(_box_line(_dim(target_str)))
             lines.append(border_bot)
             return "\n".join(lines)
 
         total = manifest.total_count
         completed = sum(1 for m in manifest.messages if m.status == QueuedMessageStatus.COMPLETED)
         bar_str = self.format_progress_bar(completed, total, width=18)
-        lines.append(f"│ Progress: {_bold(bar_str):<{card_width + 10}} │")
+        lines.append(_box_line(f"Progress: {_bold(bar_str)}"))
 
         # Status Line
         if manifest.is_paused:
             reason = manifest.metadata.get("pause_reason", "Human Preemption")
             status_text = f"⏸ PAUSED — {reason}"
-            lines.append(f"│ State:    {_yellow(_bold(status_text)):<{card_width + 10}} │")
+            lines.append(_box_line(f"State:    {_yellow(_bold(status_text))}"))
         elif manifest.is_completed:
             status_text = "✔ COMPLETED — All queued turns dispatched"
-            lines.append(f"│ State:    {_green(_bold(status_text)):<{card_width + 10}} │")
+            lines.append(_box_line(f"State:    {_green(_bold(status_text))}"))
         else:
             turn_num = manifest.active_index + 1
             status_text = f"▶ RUNNING — Turn {turn_num} of {total}"
-            lines.append(f"│ State:    {_cyan(_bold(status_text)):<{card_width + 10}} │")
+            lines.append(_box_line(f"State:    {_cyan(_bold(status_text))}"))
 
         lines.append(border_mid)
 
         # Active or Next Message
         active_msg = manifest.peek_next_message()
         if active_msg:
-            lines.append(f"│ {_bold('Next Auto-Reply Dispatch:')} {'':<{card_width - 27}} │")
+            lines.append(_box_line(_bold("Next Auto-Reply Dispatch:")))
             prompt_snip = active_msg.prompt.strip().replace("\n", " ")
-            if len(prompt_snip) > card_width - 4:
-                prompt_snip = prompt_snip[: card_width - 7] + "..."
-            lines.append(f"│   {_bold(prompt_snip):<{card_width - 2}} │")
-            lines.append(f"│   {_dim(f'Domain: {active_msg.domain} • Index: {active_msg.index + 1}/{total}'):<{card_width + 10}} │")
+            if len(prompt_snip) > card_width - 6:
+                prompt_snip = prompt_snip[: card_width - 9] + "..."
+            lines.append(_box_line(f"  {_bold(prompt_snip)}"))
+            domain_info = f"Domain: {active_msg.domain} • Index: {active_msg.index + 1}/{total}"
+            if len(domain_info) > card_width - 6:
+                domain_info = domain_info[: card_width - 9] + "..."
+            lines.append(_box_line(f"  {_dim(domain_info)}"))
         elif manifest.is_completed:
-            lines.append(f"│ {_green('✨ All follow-up turns completed successfully.'):<{card_width + 10}} │")
+            lines.append(_box_line(_green("✨ All follow-up turns completed successfully.")))
 
         # Subagent Team Allocation
         if not manifest.is_completed:
             turn_idx = manifest.active_index
             team_names = [
-                "Turn 1: 3-Person QA (Edge Case, Security, Test Coverage)",
-                "Turn 2: Fresh Chaos QA (Chaos Auditor, Threat Model, Contract)",
-                "Turn 3: Executive Simplicity (Simplicity Auditor, Debt, Product)",
-                "Turn 4: Wiring Logic (Wiring Logic, Regressions, State Sync)",
-                "Turn 5: Visual Proof (Screenshot/Simulator, Visual Quality, Docs)",
+                "3-Person QA (Edge Case, Security, Test Coverage)",
+                "Fresh Chaos QA (Chaos Auditor, Threat Model, Contract)",
+                "Executive Simplicity (Simplicity Auditor, Debt, Product)",
+                "Wiring Logic (Wiring Logic, Regressions, State Sync)",
+                "Visual Proof (Screenshot/Simulator, Visual Quality, Docs)",
             ]
             team_label = team_names[turn_idx] if turn_idx < len(team_names) else "Specialized Subagent Trio"
-            lines.append(f"│ {_dim('Subagents:')} {_magenta(team_label):<{card_width + 10}} │")
+            max_team_len = card_width - 2 - len("Subagents: ")
+            if len(team_label) > max_team_len:
+                team_label = team_label[: max_team_len - 3] + "..."
+            lines.append(_box_line(f"{_dim('Subagents:')} {_magenta(team_label)}"))
 
         lines.append(border_bot)
         return "\n".join(lines)

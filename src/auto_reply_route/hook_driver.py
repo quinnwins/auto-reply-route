@@ -35,6 +35,25 @@ def _validate_conversation_id(conv_id: str) -> str:
     return clean
 
 
+FORBIDDEN_ROOTS = ("/etc", "/var", "/private/etc", "/dev", "/proc", "/sys")
+
+
+def _is_safe_file_path(path_str: Optional[Union[str, Path]]) -> Optional[Path]:
+    """Validate that a filepath is non-empty, contains no NUL bytes, escapes forbidden system roots, and exists."""
+    if not path_str:
+        return None
+    p_clean = str(path_str).strip()
+    if not p_clean or "\0" in p_clean:
+        return None
+    try:
+        resolved = Path(p_clean).resolve()
+    except Exception:
+        return None
+    if any(str(resolved).startswith(fb) for fb in FORBIDDEN_ROOTS):
+        return None
+    return resolved if resolved.is_file() else None
+
+
 def _sync_dir(dir_path: Path) -> None:
     """Best-effort POSIX directory sync to guarantee directory entry durability."""
     try:
@@ -45,6 +64,27 @@ def _sync_dir(dir_path: Path) -> None:
             os.close(dir_fd)
     except (OSError, PermissionError):
         pass
+
+
+def _atomic_write_file(target_file: Path, content: str, sync_dir_flag: bool = True) -> None:
+    """Atomically write content to target_file using a thread-safe temp file and POSIX directory sync."""
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = target_file.parent / f".{target_file.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_file, target_file)
+        if sync_dir_flag:
+            _sync_dir(target_file.parent)
+    finally:
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except OSError:
+                pass
+
 
 DeterministicGateSieve = None  # type: ignore
 
@@ -157,13 +197,9 @@ class AntigravityHookDriver:
         base_dir: Optional[Union[str, Path]] = None,
     ) -> None:
         self.base_dir = Path(base_dir).resolve() if base_dir else Path.cwd()
-        if gate_sieve is not None:
-            self.gate_sieve = gate_sieve
-        elif DeterministicGateSieve is not None:
-            self.gate_sieve = DeterministicGateSieve()
-        else:
-            self.gate_sieve = None
-
+        self.gate_sieve = gate_sieve if gate_sieve is not None else (
+            DeterministicGateSieve() if DeterministicGateSieve is not None else None
+        )
         self._injected_heal_controller = heal_controller
         self._step_heal_controllers: dict[int, Any] = {}
 
@@ -172,10 +208,7 @@ class AntigravityHookDriver:
         if self._injected_heal_controller is not None:
             return self._injected_heal_controller
         if step_idx not in self._step_heal_controllers:
-            if QuarantineAutoHealController is not None:
-                self._step_heal_controllers[step_idx] = QuarantineAutoHealController()
-            else:
-                self._step_heal_controllers[step_idx] = FallbackAutoHealController()
+            self._step_heal_controllers[step_idx] = QuarantineAutoHealController()
         return self._step_heal_controllers[step_idx]
 
     AUTOMATED_SOURCES = {
@@ -216,19 +249,8 @@ class AntigravityHookDriver:
         """Safely parse JSON Lines transcript file into memory with APFS concurrency resilience
         and directory traversal protections.
         """
-        if not transcript_path:
-            return []
-
-        p_str = str(transcript_path).strip()
-        if "\0" in p_str:
-            return []
-
-        path = Path(p_str).resolve()
-        forbidden_roots = ("/etc", "/var", "/private/etc", "/dev", "/proc", "/sys")
-        if any(str(path).startswith(fb) for fb in forbidden_roots):
-            return []
-
-        if not path.is_file():
+        path = _is_safe_file_path(transcript_path)
+        if path is None:
             return []
 
         steps: list[dict[str, Any]] = []
@@ -279,12 +301,32 @@ class AntigravityHookDriver:
             step_type = str(step.get("type", "")).upper()
             source = str(step.get("source", "")).upper()
             if step_type == "PLANNER_RESPONSE" or source == "MODEL":
-                tool_calls = step.get("tool_calls") or []
-                if isinstance(tool_calls, list) and len(tool_calls) > 0:
-                    return True
-                return False
+                return bool(step.get("tool_calls"))
 
         return False
+
+    @classmethod
+    def _is_turn_trigger(cls, step: dict[str, Any]) -> bool:
+        source = str(step.get("source", "")).strip().upper()
+        step_type = str(step.get("type", "")).strip().upper()
+        role = str(step.get("role", "")).strip().lower()
+        sender = str(step.get("sender", "")).strip().lower()
+        return (
+            source in (
+                "USER_EXPLICIT",
+                "USER",
+                "HUMAN",
+                "CLIENT",
+                "SYSTEM",
+                "HOOK",
+                "AUTO_REPLY",
+                "SYSTEM_SDK",
+                "AUTO_HEAL",
+            )
+            or step_type in ("USER_INPUT", "USER")
+            or role in ("user", "system")
+            or sender in ("user", "hook", "system")
+        )
 
     def is_human_preemption(self, transcript_steps: list[dict[str, Any]]) -> bool:
         """Check if the latest user turn was explicitly typed by a human across all message envelope schemas."""
@@ -297,94 +339,53 @@ class AntigravityHookDriver:
 
         # Search backward for the most recent user turn trigger
         for step in reversed(transcript_steps):
-            source = str(step.get("source", "")).strip().upper()
-            step_type = str(step.get("type", "")).strip().upper()
-            role = str(step.get("role", "")).strip().lower()
-            sender = str(step.get("sender", "")).strip().lower()
-
-            is_turn_trigger = (
-                source in (
-                    "USER_EXPLICIT",
-                    "USER",
-                    "HUMAN",
-                    "CLIENT",
-                    "SYSTEM",
-                    "HOOK",
-                    "AUTO_REPLY",
-                    "SYSTEM_SDK",
-                    "AUTO_HEAL",
-                )
-                or step_type in ("USER_INPUT", "USER")
-                or role in ("user", "system")
-                or sender in ("user", "hook", "system")
-            )
-
-            if is_turn_trigger:
+            if self._is_turn_trigger(step):
                 return self._is_human_turn_step(step)
 
         return False
+
+    def _find_candidate_file(
+        self,
+        conversation_id: str,
+        explicit_file: Optional[str],
+        file_templates: list[str],
+    ) -> Optional[Path]:
+        safe_explicit = _is_safe_file_path(explicit_file)
+        if safe_explicit is not None:
+            return safe_explicit
+
+        try:
+            safe_conv_id = _validate_conversation_id(conversation_id)
+        except ValueError:
+            safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(conversation_id))
+
+        for tmpl in file_templates:
+            fname = tmpl.format(conv_id=safe_conv_id)
+            for base in (self.base_dir, Path.cwd()):
+                cand = base / fname
+                if cand.is_file():
+                    return cand.resolve()
+        return None
 
     def _find_route_file(
         self, conversation_id: str, active_route_file: Optional[str]
     ) -> Optional[Path]:
         """Locate the route state checkpoint file on disk with directory traversal validation."""
-        if active_route_file:
-            rf_str = str(active_route_file).strip()
-            if "\0" not in rf_str:
-                rf = Path(rf_str).resolve()
-                forbidden_roots = ("/etc", "/var", "/private/etc", "/dev", "/proc", "/sys")
-                if not any(str(rf).startswith(fb) for fb in forbidden_roots):
-                    if rf.is_file():
-                        return rf
-
-        try:
-            safe_conv_id = _validate_conversation_id(conversation_id)
-        except ValueError:
-            safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(conversation_id))
-
-        candidates = [
-            self.base_dir / f".route_state_{safe_conv_id}.json",
-            Path.cwd() / f".route_state_{safe_conv_id}.json",
-            self.base_dir / ".route_state.json",
-            Path.cwd() / ".route_state.json",
-            self.base_dir / ".agy-route-state.json",
-            Path.cwd() / ".agy-route-state.json",
-        ]
-
-        for cand in candidates:
-            if cand.is_file():
-                return cand.resolve()
-        return None
+        return self._find_candidate_file(
+            conversation_id,
+            active_route_file,
+            [".route_state_{conv_id}.json", ".route_state.json", ".agy-route-state.json"],
+        )
 
     def _find_queue_file(
         self, conversation_id: str, active_queue_file: Optional[str] = None
     ) -> Optional[Path]:
         """Locate the queued messages file on disk with directory traversal validation."""
-        if active_queue_file:
-            qf_str = str(active_queue_file).strip()
-            if "\0" not in qf_str:
-                qf = Path(qf_str).resolve()
-                forbidden_roots = ("/etc", "/var", "/private/etc", "/dev", "/proc", "/sys")
-                if not any(str(qf).startswith(fb) for fb in forbidden_roots):
-                    if qf.is_file():
-                        return qf
-
-        try:
-            safe_conv_id = _validate_conversation_id(conversation_id)
-        except ValueError:
-            safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(conversation_id))
-
-        candidates = [
-            self.base_dir / f".queued_messages_{safe_conv_id}.json",
-            Path.cwd() / f".queued_messages_{safe_conv_id}.json",
-            self.base_dir / ".queued_messages.json",
-            Path.cwd() / ".queued_messages.json",
-        ]
-
-        for cand in candidates:
-            if cand.is_file():
-                return cand.resolve()
-        return None
+        return self._find_candidate_file(
+            conversation_id,
+            active_queue_file,
+            [".queued_messages_{conv_id}.json", ".queued_messages.json"],
+        )
 
     def evaluate_step_gates(
         self, step: RouteStep, repo_path: Optional[Union[str, Path]] = None
@@ -516,14 +517,8 @@ class AntigravityHookDriver:
         safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(conversation_id))
         target_dir = route_file.parent if route_file else self.base_dir
         exp_file = target_dir / f".route_explanation_{safe_conv_id}.txt"
-        temp_exp = target_dir / f".route_explanation_{safe_conv_id}.{os.getpid()}.{threading.get_ident()}.tmp"
         try:
-            with open(temp_exp, "w", encoding="utf-8") as f:
-                f.write(explanation + "\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_exp, exp_file)
-            _sync_dir(target_dir)
+            _atomic_write_file(exp_file, explanation + "\n")
         except Exception:
             pass
 
@@ -621,6 +616,14 @@ class AntigravityHookDriver:
                                 "reason": popped.prompt,
                             }
                     else:
+                        retries = next_msg.metadata.get("gate_retries", 0) + 1
+                        next_msg.metadata["gate_retries"] = retries
+                        max_retries = next_msg.metadata.get("max_retries", 2)
+                        if retries > max_retries:
+                            queue.pause(reason=f"Gate check failed: {err_summary}")
+                            queue.save_to_file(queue_path)
+                            return {"decision": "allow"}
+                        queue.save_to_file(queue_path)
                         return {
                             "decision": "continue",
                             "reason": f"[GATE CHECK FAILED: {err_summary}] Fix this before proceeding to next queued message.",
@@ -646,7 +649,13 @@ class AntigravityHookDriver:
             return {"decision": "allow"}
 
         # 3. Check for human preemption
-        if self.is_human_preemption(transcript_steps):
+        is_preempted = self.is_human_preemption(transcript_steps)
+        if is_preempted and state_machine.manifest.current_step_idx == 0:
+            user_turn_count = sum(1 for s in transcript_steps if self._is_turn_trigger(s))
+            if user_turn_count <= 1:
+                is_preempted = False
+
+        if is_preempted:
             state_machine.manifest.state = StepStatus.PAUSED_BY_USER
             current = state_machine.get_current_step()
             if current is not None:
@@ -691,14 +700,8 @@ class AntigravityHookDriver:
                 state_machine.manifest.metadata["milestone_summary"] = milestone_card
                 safe_conv_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(conv_id))
                 milestone_file = route_path.parent / f".route_milestone_{safe_conv_id}.md"
-                temp_ms = route_path.parent / f".route_milestone_{safe_conv_id}.{os.getpid()}.{threading.get_ident()}.tmp"
                 try:
-                    with open(temp_ms, "w", encoding="utf-8") as f:
-                        f.write(milestone_card + "\n")
-                        f.flush()
-                        os.fsync(f.fileno())
-                    os.replace(temp_ms, milestone_file)
-                    _sync_dir(route_path.parent)
+                    _atomic_write_file(milestone_file, milestone_card + "\n")
                 except Exception:
                     pass
 
@@ -797,25 +800,11 @@ class QueueDispatcher:
         }
 
         target_file = messages_dir / f"{msg_id}.json"
-        temp_file = messages_dir / f".{msg_id}.{os.getpid()}.{threading.get_ident()}.tmp"
-
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(msg_payload, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_file, target_file)
-        _sync_dir(messages_dir)
+        _atomic_write_file(target_file, json.dumps(msg_payload, indent=2, ensure_ascii=False))
 
         # Touch the undelivered indicator file for reactive file watchers
         indicator_file = undelivered_dir / msg_id
-        temp_ind = undelivered_dir / f".{msg_id}.{os.getpid()}.tmp"
-        with open(temp_ind, "w", encoding="utf-8") as f:
-            f.write("")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temp_ind, indicator_file)
-        _sync_dir(undelivered_dir)
+        _atomic_write_file(indicator_file, "")
 
         return msg_payload
 

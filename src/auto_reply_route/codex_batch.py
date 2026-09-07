@@ -21,6 +21,15 @@ class CodexBatch(CodexQueue):
             raise QueueError("No /q batch exists for this task.")
         return super().read()
 
+    def start(self, *args, **kwargs):
+        raise NotImplementedError("Use stage_batch, enter, and finish_step for CodexBatch.")
+
+    def stage(self, *args, **kwargs):
+        raise NotImplementedError("Use stage_batch, enter, and finish_step for CodexBatch.")
+
+    def finish(self, *args, **kwargs):
+        raise NotImplementedError("Use stage_batch, enter, and finish_step for CodexBatch.")
+
     def stage_batch(self, objective, prompts, codex_bin=None):
         # Validate the whole batch before making any external call.
         if not isinstance(objective, str) or not objective.strip():

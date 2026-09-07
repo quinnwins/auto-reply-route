@@ -1014,7 +1014,7 @@ class MatrixBeamRouter:
 
             steps.append(
                 RouteStep(
-                    index=step_idx + 1,
+                    index=step_idx,
                     title=p_title,
                     primary_prompt=p_prompt,
                     assertions=[p_assert] if p_assert else [],

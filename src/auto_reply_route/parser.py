@@ -13,6 +13,17 @@ from auto_reply_route.models import (
 )
 
 
+_STEP_PATTERN = re.compile(r"^\s{0,2}(\d+)[.)]\s*(.*)$")
+_BULLET_PATTERN = re.compile(r"^(\s{2,}|\t+)[-*+]\s+(.*)$")
+_RANK_TAG_RE = re.compile(r"\[(?:rank[=:]?\s*)(\d+)\]", re.IGNORECASE)
+_ALT_BOLD_ITALIC_RE = re.compile(r"^\*{1,2}(.*?)\*{1,2}:\s*(.*)$")
+_ALT_BRACKET_RE = re.compile(r"^\[(.*?)\]:?\s*(.*)$")
+_MARKDOWN_PUNCT_RE = re.compile(r"[*_`#]")
+_TITLE_PREPOSITIONS = frozenset({
+    "in", "on", "at", "to", "for", "with", "by", "from", "of", "the", "a", "an", "and", "or"
+})
+
+
 class RouteParser:
     """Parser for Markdown-based route playbooks (.route.md)."""
 
@@ -27,23 +38,17 @@ class RouteParser:
                 first_line = s
                 break
 
-        clean = re.sub(r"[*_`#]", "", first_line).strip()
+        clean = _MARKDOWN_PUNCT_RE.sub("", first_line).strip()
         if not clean:
             return ""
 
-        # Check for explicit colon delimiter e.g. "Title: Description"
-        if ":" in clean:
-            prefix = clean.split(":", 1)[0].strip()
-            prefix_words = prefix.split()
-            if 1 <= len(prefix_words) <= 6:
-                return " ".join(prefix_words).strip()
-
-        # Check for dash delimiter e.g. "Title - Description"
-        if " - " in clean:
-            prefix = clean.split(" - ", 1)[0].strip()
-            prefix_words = prefix.split()
-            if 1 <= len(prefix_words) <= 6:
-                return " ".join(prefix_words).strip()
+        # Check for explicit delimiters e.g. "Title: Description" or "Title - Description"
+        for delim in (":", " - "):
+            if delim in clean:
+                prefix = clean.split(delim, 1)[0].strip()
+                prefix_words = prefix.split()
+                if 1 <= len(prefix_words) <= 6:
+                    return " ".join(prefix_words).strip()
 
         words = clean.split()
         if len(words) <= 6:
@@ -55,10 +60,7 @@ class RouteParser:
                 return " ".join(words[: idx + 1]).rstrip(".:;,- ")
 
         # Lookahead: if 4th word is a preposition or article, grab 5 words to avoid dangling particle
-        prepositions = {
-            "in", "on", "at", "to", "for", "with", "by", "from", "of", "the", "a", "an", "and", "or"
-        }
-        if len(words) > 4 and words[3].lower().rstrip(".,") in prepositions:
+        if len(words) > 4 and words[3].lower().rstrip(".,") in _TITLE_PREPOSITIONS:
             return " ".join(words[:5]).rstrip(".:;,")
         return " ".join(words[:4]).rstrip(".:;,")
 
@@ -69,18 +71,18 @@ class RouteParser:
         assigned_rank = default_rank
 
         # Check if rank is explicitly tagged like [Rank 3] or [rank=2]
-        explicit_rank_match = re.search(r"\[(?:rank[=:]?\s*)(\d+)\]", text, re.IGNORECASE)
+        explicit_rank_match = _RANK_TAG_RE.search(text)
         if explicit_rank_match:
             assigned_rank = int(explicit_rank_match.group(1))
-            text = re.sub(r"\[(?:rank[=:]?\s*)\d+\]", "", text, flags=re.IGNORECASE).strip()
+            text = _RANK_TAG_RE.sub("", text).strip()
 
         # Pattern 1: *Label*: Prompt or **Label**: Prompt
-        m = re.match(r"^\*{1,2}(.*?)\*{1,2}:\s*(.*)$", text)
+        m = _ALT_BOLD_ITALIC_RE.match(text)
         if m:
             return m.group(1).strip(), m.group(2).strip(), assigned_rank
 
         # Pattern 2: [Label]: Prompt or [Label] Prompt
-        m = re.match(r"^\[(.*?)\]:?\s*(.*)$", text)
+        m = _ALT_BRACKET_RE.match(text)
         if m:
             return m.group(1).strip(), m.group(2).strip(), assigned_rank
 
@@ -139,8 +141,8 @@ class RouteParser:
 
             if current_alt and current_alt_lines:
                 current_alt.prompt_template = "\n".join(current_alt_lines).strip()
-                current_alt = None
-                current_alt_lines = []
+            current_alt = None
+            current_alt_lines = []
 
             full_prompt = "\n".join(current_prompt_lines).strip()
             current_step.primary_prompt = full_prompt
@@ -153,18 +155,13 @@ class RouteParser:
             current_prompt_lines = []
             base_alt_indent = None
 
-        # Numbered step pattern at margin: e.g. "1. " or "2. "
-        step_pattern = re.compile(r"^\s{0,2}(\d+)[.)]\s*(.*)$")
-        # Indented bullet pattern: e.g. "   - ..." or "\t- ..."
-        bullet_pattern = re.compile(r"^(\s{2,}|\t+)[-*+]\s+(.*)$")
-
         for line in lines:
             # Skip Markdown top-level header
             if line.strip().startswith("# "):
                 continue
 
             # Check for top-level numbered step
-            step_match = step_pattern.match(line)
+            step_match = _STEP_PATTERN.match(line)
             if step_match:
                 finalize_step()
                 step_body = step_match.group(2).strip()
@@ -184,7 +181,7 @@ class RouteParser:
                 continue
 
             # Check for indented bullet (alternative branch, assertion, or manifest)
-            bullet_match = bullet_pattern.match(line)
+            bullet_match = _BULLET_PATTERN.match(line)
             if bullet_match:
                 indent_str = bullet_match.group(1)
                 indent_len = len(indent_str.expandtabs(4))
@@ -275,9 +272,9 @@ class RouteParser:
         content = path.read_text(encoding="utf-8")
 
         stem = path.name
-        for suffix in [".route.md", ".route", ".md"]:
+        for suffix in (".route.md", ".route", ".md"):
             if stem.endswith(suffix):
-                stem = stem[:-len(suffix)]
+                stem = stem.removesuffix(suffix)
                 break
 
         return cls.parse_string(content, route_id=stem)

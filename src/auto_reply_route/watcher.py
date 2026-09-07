@@ -110,7 +110,6 @@ class ToolUsageWatcher:
 
         t = now if now is not None else time.monotonic()
         self.last_tool_timestamp = t
-        self.last_heartbeat_timestamp = t
         # Tool call confirms progress; reset nudges for this epoch
         self.nudges_sent_for_epoch = 0
         return True
@@ -155,7 +154,7 @@ class ToolUsageWatcher:
         elapsed_tool_inactivity = t - self.last_tool_timestamp
         elapsed_heartbeat = (t - self.last_heartbeat_timestamp) if self.last_heartbeat_timestamp is not None else float("inf")
 
-        # Calculate remaining steps
+        # Determine remaining steps and whether route has active work
         remaining = 0
         if manifest is not None:
             if manifest.state in (StepStatus.COMPLETED, StepStatus.PAUSED, StepStatus.FAILED):
@@ -166,18 +165,25 @@ class ToolUsageWatcher:
                     explanation=f"Route is not actively running (state: {manifest.state.value}).",
                 )
             remaining = sum(1 for s in manifest.steps if s.status == StepStatus.PENDING)
+            curr_step = manifest.steps[manifest.current_step_idx] if 0 <= manifest.current_step_idx < len(manifest.steps) else None
+            if remaining <= 0 and (curr_step is None or curr_step.status != StepStatus.RUNNING):
+                return WatchdogDecision(
+                    action=WatchdogAction.NOOP,
+                    epoch=self.current_epoch,
+                    elapsed_inactivity=elapsed_tool_inactivity,
+                    explanation="No remaining prompts left in route.",
+                    remaining_steps=0,
+                )
         elif self.current_step_index is not None and self.total_steps > 0:
+            if self.current_step_index >= self.total_steps:
+                return WatchdogDecision(
+                    action=WatchdogAction.NOOP,
+                    epoch=self.current_epoch,
+                    elapsed_inactivity=elapsed_tool_inactivity,
+                    explanation="No remaining prompts left in route.",
+                    remaining_steps=0,
+                )
             remaining = max(0, self.total_steps - (self.current_step_index + 1))
-
-        if remaining <= 0 and (manifest is None or manifest.current_step_idx >= len(manifest.steps) - 1):
-            # No subsequent prompts left to send
-            return WatchdogDecision(
-                action=WatchdogAction.NOOP,
-                epoch=self.current_epoch,
-                elapsed_inactivity=elapsed_tool_inactivity,
-                explanation="No remaining prompts left in route.",
-                remaining_steps=0,
-            )
 
         # Check lease renewal: if background task is actively emitting heartbeats within lease window
         if elapsed_heartbeat < self.config.heartbeat_lease_seconds and elapsed_tool_inactivity >= self.config.inactivity_timeout_seconds:

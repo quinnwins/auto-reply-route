@@ -14,15 +14,12 @@ Guarantees:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
-import os
 from pathlib import Path
 import re
 import subprocess
 from typing import Any, Optional
 
 from auto_reply_route.miner import IntentStratum, PromptMiner
-from auto_reply_route.sanitizer import SecretAndPIISanitizer
 
 
 PERSONAL_DNA_FILENAME = "personal_dna.md"
@@ -43,11 +40,7 @@ _BULLET_PREFIX_RE = re.compile(r"^[-*+]\s+")
 _NUMBERED_PREFIX_RE = re.compile(r"^\d+[.)]\s+")
 _LIVING_ROOM_RE = re.compile(r"(?:The\s+)?Living-Room\s+Test:\*{0,2}\s*(.+)", re.IGNORECASE)
 _BOLD_KEY_VALUE_RE = re.compile(r"^\*{2}(.*?)\*{2}:?\s*(.*)$")
-_KEYWORD_PREFILTER_RE = re.compile(
-    r"(?i)simplicity|stress|cognitive|plain|intuitive|plumbing|overexplain|system mechanics|"
-    r"preamble|fluff|checklist|academic|consultant|anti-pattern|anti-tower|rabbit hole|20-line|"
-    r"inheritance|plugin|abstraction|session-history|grounding|sanity check|steering|least complicated|living-room"
-)
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 
 
 def default_operator_dna_path() -> Path:
@@ -218,18 +211,15 @@ def parse_agents_markdown(content: str) -> dict[str, Any]:
                         break
             continue
 
-        # Header detection
-        if stripped.startswith("## ") and len(core_rules) < MAX_SECTION_RULES:
-            section = stripped[3:].strip()[:MAX_RULE_CHARS]
-            if section and section not in core_rules_set:
-                core_rules.append(section)
-                core_rules_set.add(section)
-            continue
-        elif stripped.startswith("# ") and len(core_rules) < MAX_SECTION_RULES:
-            header = stripped[2:].strip()[:MAX_RULE_CHARS]
-            if header and header != "Global Antigravity Operating Rules" and header not in core_rules_set:
-                core_rules.append(header)
-                core_rules_set.add(header)
+        # Header detection (H1-H6)
+        m_head = _HEADING_RE.match(stripped)
+        if m_head:
+            level = len(m_head.group(1))
+            header_text = m_head.group(2).strip()[:MAX_RULE_CHARS]
+            if level <= 2 and len(core_rules) < MAX_SECTION_RULES:
+                if header_text and header_text != "Global Antigravity Operating Rules" and header_text not in core_rules_set:
+                    core_rules.append(header_text)
+                    core_rules_set.add(header_text)
             continue
 
         low = stripped.lower()
@@ -371,23 +361,22 @@ def ingest_agents_principles(
         try:
             w_content = workspace_agents_file.read_text(encoding="utf-8", errors="replace")
             w_parsed = parse_agents_markdown(w_content)
-            for law in w_parsed["simplicity_laws"]:
-                if law not in principles.simplicity_laws:
-                    principles.simplicity_laws.insert(0, law)
             if w_parsed.get("living_room_test"):
                 principles.living_room_test = w_parsed["living_room_test"]
-            for ap in w_parsed["anti_patterns"]:
-                if ap not in principles.anti_patterns:
-                    principles.anti_patterns.insert(0, ap)
-            for tb in w_parsed["anti_tower_of_babel"]:
-                if tb not in principles.anti_tower_of_babel:
-                    principles.anti_tower_of_babel.insert(0, tb)
-            for es in w_parsed["executive_steering"]:
-                if es not in principles.executive_steering:
-                    principles.executive_steering.insert(0, es)
-            for cr in w_parsed["core_rules"]:
-                if cr not in principles.core_rules:
-                    principles.core_rules.append(cr)
+
+            for target_list, items, prepend in (
+                (principles.simplicity_laws, w_parsed["simplicity_laws"], True),
+                (principles.anti_patterns, w_parsed["anti_patterns"], True),
+                (principles.anti_tower_of_babel, w_parsed["anti_tower_of_babel"], True),
+                (principles.executive_steering, w_parsed["executive_steering"], True),
+                (principles.core_rules, w_parsed["core_rules"], False),
+            ):
+                for item in items:
+                    if item not in target_list:
+                        if prepend:
+                            target_list.insert(0, item)
+                        else:
+                            target_list.append(item)
             principles.sources.append(str(workspace_agents_file))
         except Exception:
             pass
@@ -533,7 +522,7 @@ def format_bullet_point(item: str, indent: str = "") -> str:
         return ""
 
     # Check for bold pattern: **Term:** or **Term**:
-    m_bold = re.match(r"^\*{2}(.*?)\*{2}:?\s*(.*)$", clean)
+    m_bold = _BOLD_KEY_VALUE_RE.match(clean)
     if m_bold:
         term = m_bold.group(1).rstrip(":").strip()
         body = m_bold.group(2).lstrip(":").strip()
@@ -551,6 +540,21 @@ def format_bullet_point(item: str, indent: str = "") -> str:
             return f"{indent}- **{k_clean}:** {v_clean}"
 
     return f"{indent}- {clean}"
+
+
+def _format_and_dedupe_bullets(items: list[str], indent: str = "  ") -> list[str]:
+    """Helper to clean, format, and deduplicate bullet items preserving insertion order."""
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        cleaned = clean_bullet_text(item)
+        if "living-room test" in cleaned.lower():
+            continue
+        formatted = format_bullet_point(cleaned, indent=indent)
+        if formatted and formatted not in seen:
+            deduped.append(formatted)
+            seen.add(formatted)
+    return deduped
 
 
 def render_operator_dna_matrix(
@@ -575,24 +579,7 @@ def render_operator_dna_matrix(
     lrt = principles.living_room_test or "If you wouldn't say the sentence to a neighbor over coffee, delete it."
 
     # Format anti-patterns
-    anti_pattern_lines: list[str] = []
-    for ap in principles.anti_patterns:
-        cleaned_ap = clean_bullet_text(ap)
-        if "living-room test" in cleaned_ap.lower():
-            continue
-        formatted_ap = format_bullet_point(cleaned_ap, indent="  ")
-        if formatted_ap:
-            anti_pattern_lines.append(formatted_ap)
-
-
-    # Deduplicate while preserving order
-    seen_ap = set()
-    deduped_ap = []
-    for apl in anti_pattern_lines:
-        if apl not in seen_ap:
-            deduped_ap.append(apl)
-            seen_ap.add(apl)
-
+    deduped_ap = _format_and_dedupe_bullets(principles.anti_patterns, indent="  ")
     anti_patterns_block = "\n".join(deduped_ap) if deduped_ap else (
         "  - Enterprise consultant fluff (\"In order to facilitate this architecture...\").\n"
         "  - Theoretical checklists dumped into prompts without context.\n"
@@ -658,22 +645,7 @@ def render_operator_dna_matrix(
     steering_str = "\n".join(steering_lines)
 
     # Format simplicity laws
-    simplicity_lines: list[str] = []
-    for sl in principles.simplicity_laws:
-        cleaned_sl = clean_bullet_text(sl)
-        if "living-room test" in cleaned_sl.lower():
-            continue
-        formatted_sl = format_bullet_point(cleaned_sl, indent="  ")
-        if formatted_sl:
-            simplicity_lines.append(formatted_sl)
-
-    seen_sl = set()
-    deduped_sl = []
-    for sll in simplicity_lines:
-        if sll not in seen_sl:
-            deduped_sl.append(sll)
-            seen_sl.add(sll)
-
+    deduped_sl = _format_and_dedupe_bullets(principles.simplicity_laws, indent="  ")
     simplicity_block = ""
     if deduped_sl:
         simplicity_block = "- **Simplicity Laws:**\n" + "\n".join(deduped_sl) + "\n"

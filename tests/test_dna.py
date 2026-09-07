@@ -450,3 +450,26 @@ class TestCLIInitDNA:
         assert "[PRESERVED] the operator's Operator DNA matrix active at:" in captured.out
         assert "the operator's personal DNA file is 100% untouched." in captured.out
         assert q_file.read_text(encoding="utf-8") == "# PERSONAL DNA UNTOUCHED"
+
+
+def test_h3_to_h6_headings_not_ingested_as_rules() -> None:
+    from auto_reply_route.dna import parse_agents_markdown
+
+    sample_md = """
+# Section One
+## Core Architecture
+### Anti-Patterns and Common Pitfalls
+- Never build 20-line premature inheritance hierarchies or generic plugins.
+#### Deep Subheading for Simplicity
+- Keep all customer flows intuitive, stress-free, and simple.
+##### Internal Implementation Note
+###### Even Deeper Diagnostic Note
+"""
+    rules = parse_agents_markdown(sample_md)
+    for cat in ("simplicity_laws", "anti_patterns", "anti_tower_of_babel", "executive_steering"):
+        for rule in rules.get(cat, []):
+            assert not rule.startswith("#")
+            assert "Anti-Patterns and Common Pitfalls" not in rule
+            assert "Deep Subheading for Simplicity" not in rule
+            assert "Internal Implementation Note" not in rule
+

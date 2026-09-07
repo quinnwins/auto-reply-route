@@ -64,6 +64,23 @@ class TestAdversarialPrefixOverrides:
         assert r_bare.explicit_prefix_override is False
         assert r_bare.suggested_steps == 0
 
+    def test_out_of_bounds_prefix_does_not_override(self):
+        """[99] or [0] must not trigger explicit prefix override."""
+        r_99 = HumanIntentClassifier.classify('[99] what feature are we missing here')
+        assert r_99.explicit_prefix_override is False
+        assert r_99.tier == PromptIntentTier.DIRECT_ANSWER
+
+        r_0 = HumanIntentClassifier.classify('[0] what feature are we missing here')
+        assert r_0.explicit_prefix_override is False
+
+    def test_bracket_prefix_with_internal_whitespace(self):
+        """[ 4 ] what feature are we missing here must yield CODE_BUILD with 4 steps."""
+        res = HumanIntentClassifier.classify('[ 4 ] what feature are we missing here')
+        assert res.tier == PromptIntentTier.CODE_BUILD
+        assert res.suggested_steps == 4
+        assert res.explicit_prefix_override is True
+
+
 
 class TestHybridQuestionAndCommand:
     """Probing compound inputs containing both explanatory questions and build actions."""

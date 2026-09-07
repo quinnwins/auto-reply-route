@@ -58,9 +58,7 @@ class RouteStateMachine:
 
     def get_current_step(self) -> Optional[RouteStep]:
         """Return the currently active RouteStep, or None if route is empty or past the end."""
-        if 0 <= self.manifest.current_step_idx < len(self.manifest.steps):
-            return self.manifest.steps[self.manifest.current_step_idx]
-        return None
+        return self.get_step(self.manifest.current_step_idx)
 
     def get_step(self, step_idx: int) -> Optional[RouteStep]:
         """Return RouteStep at specific index, or None if out of range."""
@@ -89,14 +87,14 @@ class RouteStateMachine:
             current.status = StepStatus.COMPLETED
 
         self.manifest.current_step_idx += 1
-        if self.manifest.current_step_idx < len(self.manifest.steps):
-            next_step = self.manifest.steps[self.manifest.current_step_idx]
+        next_step = self.get_current_step()
+        if next_step is not None:
             next_step.status = StepStatus.RUNNING
             self.manifest.state = StepStatus.RUNNING
             return next_step
-        else:
-            self.manifest.state = StepStatus.COMPLETED
-            return None
+
+        self.manifest.state = StepStatus.COMPLETED
+        return None
 
     def swap_branch(self, step_idx: int, branch_rank: Union[int, BranchRank]) -> AlternativeBranch:
         """Swap primary prompt of a step with one of its alternative branches."""
@@ -204,15 +202,19 @@ class RouteStateMachine:
         temp_path = target_path.with_name(
             f".{target_path.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.tmp"
         )
-        data = self.manifest.to_dict()
-
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_path, target_path)
-        _sync_dir(target_path.parent)
+        try:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(self.manifest.to_dict(), f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, target_path)
+            _sync_dir(target_path.parent)
+        finally:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
     @classmethod
     def load_checkpoint(cls, filepath: str) -> RouteStateMachine:

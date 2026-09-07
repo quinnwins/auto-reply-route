@@ -1417,11 +1417,15 @@
         const val = input.value.trim();
         if (!val) return;
 
+        const isUx = /\b(?:ui|ux|styling|css|html|tailwind|interface|modal|dialog|button)\b/i.test(val);
+        const isResearch = /\b(?:research|science|scientific|biomedical|clinical|biology|physics|chemistry|dental|cavitation|plaque|venture|invest|pitch|market\s+viability)\b/i.test(val);
+        const customDomain = isUx ? "ux" : (isResearch ? "research" : "code");
+
         const customObj = {
           id: "custom-" + Date.now(),
           title: val.slice(0, 30) + "...",
           prompt: val,
-          domain: val.toLowerCase().includes("code") || val.toLowerCase().includes("api") ? "code" : "research",
+          domain: customDomain,
           subject: val.slice(0, 40),
           subagents: [
             { name: "Domain Specialist A", role: "Primary Investigator" },

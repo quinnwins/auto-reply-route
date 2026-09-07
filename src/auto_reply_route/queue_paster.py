@@ -13,13 +13,12 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import time
 from typing import Any, Optional, Union
-
-# Ensure package root is in path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from auto_reply_route.builder import generate_followup_queue
 from auto_reply_route.hook_driver import QueueDispatcher, _validate_conversation_id
@@ -76,7 +75,33 @@ def send_keystroke_to_antigravity(app_name: str = "Antigravity") -> bool:
         return False
 
 
-import re
+_PREFIX_RE = re.compile(
+    r"^(?:/(?:queue-prompts|queue|q)\b|(?:queue-prompts|queue|q)\s+(?=\d+\b))\s*",
+    re.IGNORECASE,
+)
+_ASK_G_RE = re.compile(r"\bask[\s\-_]*g\b", re.IGNORECASE)
+_LEAD_SUB_RE = re.compile(
+    r"^(?:(?:with|\()\s*)?(?:up to\s+)?(\d+)\s*sub(?:agent)?s?\)?\s*(?:and\s*|,\s*|for\s*|:\s*|-\s*)?",
+    re.IGNORECASE,
+)
+_LEAD_STEP_RE = re.compile(
+    r"^(?:with\s+)?(\d+)\s+(?:follow\s*ups?|followups?|steps?|turns?)?\s*(?:and\s*|,\s*|for\s*|:\s*|-\s*)?",
+    re.IGNORECASE,
+)
+_BARE_STEP_RE = re.compile(r"^(\d+)\s*(?::|-)\s*")
+_TRAIL_SUB_RE = re.compile(r"[\s,\-\(]+(?:with\s+)?(\d+)\s*sub(?:agent)?s?\)?$", re.IGNORECASE)
+_TRAIL_STEP_RE = re.compile(r"[\s,\-\(]+(\d+)\s*(?:steps?|turns?|follow\s*ups?|followups?)\)?$", re.IGNORECASE)
+_CLEAN_DELIM_RE = re.compile(r"^(?:for|:|-)\s*", re.IGNORECASE)
+_TECH_PREFIX_GUARD_RE = re.compile(
+    r"^(?:404|500|502|503|200|201|204|400|401|403|2fa|3d|4k|5g|100x|128-bit|256-bit|32-bit|64-bit)\b",
+    re.IGNORECASE,
+)
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def is_ask_g_command(text: str) -> bool:
+    """Checks if text contains the 'ask g' / 'ask-g' adaptive directive."""
+    return bool(_ASK_G_RE.search(text))
 
 
 def parse_queue_command(text: str, default_steps: int = 5, default_subagents: int = 0) -> tuple[str, int, int]:
@@ -90,64 +115,66 @@ def parse_queue_command(text: str, default_steps: int = 5, default_subagents: in
     clean = text.strip()
 
     # 1. Strip leading command prefix: /q, /queue-prompts, /queue, Q, Queue
-    prefix_pattern = re.compile(r"^(?:/?queue-prompts\b|/?queue\b|/?q\b)\s*", re.IGNORECASE)
-    m_prefix = prefix_pattern.match(clean)
-    if m_prefix:
-        body = clean[m_prefix.end():].strip()
-    else:
-        body = clean
+    m_prefix = _PREFIX_RE.match(clean)
+    body = clean[m_prefix.end():].strip() if m_prefix else clean
 
     steps = default_steps
     subagents = default_subagents
 
     # 1.5 Strip 'ask g' if present anywhere in body so trailing steps/subagents can be matched
     if is_ask_g_command(body):
-        body = re.sub(r"\bask[\s\-_]*g\b", "", body, flags=re.IGNORECASE).strip()
-        body = re.sub(r"\s+", " ", body).strip()
+        body = _ASK_G_RE.sub("", body).strip()
+        body = _WHITESPACE_RE.sub(" ", body).strip()
 
-    # 2. Check for leading step count (e.g. "5 ...", "5 follow ups ...", "3 steps ...")
-    leading_steps = re.match(r"^(\d+)\s*(?:follow\s*ups?|followups?|steps?|turns?)?\s*(?:for|:|-)?\s*", body, re.IGNORECASE)
-    if leading_steps:
-        steps = int(leading_steps.group(1))
-        body = body[leading_steps.end():].strip()
+    # 2. Check for leading modifiers (steps, subagents, compound clauses)
+    changed = True
+    while changed:
+        changed = False
+        if _TECH_PREFIX_GUARD_RE.match(body):
+            break
 
-    # 3. Check for leading subagent specification (e.g. "(3 subagents)", "with 3 subagents")
-    sub_prefix = re.match(
-        r"^(?:\((?:up to )?(\d+)\s*sub(?:agent)?s?\)|with (\d+)\s*sub(?:agent)?s?|(\d+)\s*sub(?:agent)?s?)\s*(?:for|:|-)?\s*",
-        body,
-        re.IGNORECASE,
-    )
-    if sub_prefix:
-        for g in sub_prefix.groups():
-            if g:
-                subagents = int(g)
-                break
-        body = body[sub_prefix.end():].strip()
+        m_lead_sub = _LEAD_SUB_RE.match(body)
+        if m_lead_sub:
+            subagents = int(m_lead_sub.group(1))
+            body = body[m_lead_sub.end():].strip()
+            changed = True
+            continue
 
-    # 4. Loop for trailing modifiers (subagents, steps) in any order
+        m_lead_step = _LEAD_STEP_RE.match(body)
+        if m_lead_step:
+            num = int(m_lead_step.group(1))
+            has_unit = any(u in m_lead_step.group(0).lower() for u in ("step", "turn", "follow", "for", ":", "-"))
+            if num <= 12 or has_unit:
+                steps = num
+                body = body[m_lead_step.end():].strip()
+                changed = True
+                continue
+
+        m_bare_step = _BARE_STEP_RE.match(body)
+        if m_bare_step:
+            steps = int(m_bare_step.group(1))
+            body = body[m_bare_step.end():].strip()
+            changed = True
+            continue
+
+    # 3. Loop for trailing modifiers (subagents, steps) in any order
     while True:
-        m_sub = re.search(r"[\s,\-\(]+(?:with\s+)?(\d+)\s*sub(?:agent)?s?\)?$", body, re.IGNORECASE)
+        m_sub = _TRAIL_SUB_RE.search(body)
         if m_sub:
             subagents = int(m_sub.group(1))
             body = body[:m_sub.start()].strip()
             continue
-        m_step = re.search(r"[\s,\-\(]+(\d+)\s*(?:steps?|turns?|follow\s*ups?|followups?)\)?$", body, re.IGNORECASE)
+        m_step = _TRAIL_STEP_RE.search(body)
         if m_step:
             steps = int(m_step.group(1))
             body = body[:m_step.start()].strip()
             continue
         break
 
-    # 5. Clean up any remaining leading separators ("for", ":", "-")
-    body = re.sub(r"^(?:for|:|-)\s*", "", body, flags=re.IGNORECASE).strip()
+    # 4. Clean up any remaining leading separators ("for", ":", "-")
+    body = _CLEAN_DELIM_RE.sub("", body).strip()
 
     return body or clean, steps, subagents
-
-
-
-def is_ask_g_command(text: str) -> bool:
-    """Checks if text contains the 'ask g' / 'ask-g' adaptive directive."""
-    return bool(re.search(r"\bask[\s\-_]*g\b", text, re.IGNORECASE))
 
 
 def parse_queue_command_v4(text: str, default_steps: int = 5, default_subagents: int = 0) -> tuple[str, int, int, bool]:
@@ -237,6 +264,109 @@ def dispatch_prompt_to_conversation(
     )
 
 
+def extract_json_array(text: str) -> Optional[list[str]]:
+    """Extracts a list of non-empty strings from raw JSON or markdown-fenced text."""
+    if not text:
+        return None
+    # 1. Direct JSON parse
+    try:
+        data = json.loads(text.strip())
+        if isinstance(data, list):
+            cleaned = [str(x).strip() for x in data if str(x).strip()]
+            if cleaned:
+                return cleaned
+    except Exception:
+        pass
+
+    # 2. Markdown code fence ```json [...] ```
+    fence_m = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text, re.IGNORECASE)
+    if fence_m:
+        try:
+            data = json.loads(fence_m.group(1).strip())
+            if isinstance(data, list):
+                cleaned = [str(x).strip() for x in data if str(x).strip()]
+                if cleaned:
+                    return cleaned
+        except Exception:
+            pass
+
+    # 3. Regex search for array brackets [ ... ]
+    arr_m = re.search(r"\[[\s\S]*?\]", text)
+    if arr_m:
+        try:
+            data = json.loads(arr_m.group(0).strip())
+            if isinstance(data, list):
+                cleaned = [str(x).strip() for x in data if str(x).strip()]
+                if cleaned:
+                    return cleaned
+        except Exception:
+            pass
+
+    return None
+
+
+def synthesize_bespoke_followups_via_flash(
+    prompt: str,
+    steps: int = 5,
+    subagents: int = 0,
+    timeout_s: float = 12.0,
+    model: str = "gemini-3.8-flash-low",
+) -> Optional[list[str]]:
+    """Synthesizes high-signal follow-up prompts using Gemini Flash via `agy`.
+
+    Enforces strict fail-open semantics: if `agy` is missing, times out, or
+    returns invalid JSON, returns None so callers fall back to deterministic templates.
+    """
+    agy_bin = shutil.which("agy")
+    if not agy_bin:
+        local_agy = os.path.expanduser("~/.local/bin/agy")
+        if os.path.exists(local_agy) and os.access(local_agy, os.X_OK):
+            agy_bin = local_agy
+    if not agy_bin:
+        return None
+
+    # Load core DNA guidelines if available
+    dna_summary = (
+        "Tone & Strategy: Terse, 10-25 words per prompt, founder pragmatism, zero fluff. "
+        "Strictly actionable engineering steps: scaffold/prototype -> test/refactor -> production readiness."
+    )
+    for path_cand in [
+        Path.home() / ".gemini" / "config" / "quinns_dna.md",
+        Path(".agents/quinns_dna.md"),
+    ]:
+        if path_cand.exists():
+            try:
+                content = path_cand.read_text(encoding="utf-8")
+                lines = [l.strip() for l in content.splitlines() if l.strip() and not l.startswith("#")]
+                if lines:
+                    dna_summary = " ".join(lines[:6])
+                break
+            except Exception:
+                pass
+
+    sub_directive = f" Each step must coordinate a team of up to {subagents} subagents." if subagents > 0 else ""
+    flash_prompt = (
+        f"You are formulating multi-step prompts for an autonomous agent.\n"
+        f"Task: {prompt}\n"
+        f"Step Count: {steps}\n"
+        f"Guidelines: {dna_summary}{sub_directive}\n"
+        f"Return ONLY a valid JSON array of exactly {steps} prompt strings. No markdown fences, no commentary."
+    )
+
+    try:
+        proc = subprocess.run(
+            [agy_bin, "-p", flash_prompt, "--model", model, "--disable-slash-commands"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        if proc.returncode != 0:
+            return None
+        return extract_json_array(proc.stdout)
+    except (subprocess.TimeoutExpired, Exception):
+        return None
+
+
 def queue_prompts_into_antigravity(
     prompt: str,
     steps: int = 5,
@@ -249,6 +379,12 @@ def queue_prompts_into_antigravity(
     app_data_dir: Optional[Union[str, Path]] = None,
     environ: Optional[dict[str, str]] = None,
     delivery_mode: str = "auto",
+    dry_run: bool = False,
+    as_json: bool = False,
+    domain_override: Optional[str] = None,
+    use_ai: bool = False,
+    ai_timeout: float = 12.0,
+    model: str = "gemini-3.8-flash-low",
 ) -> list[str]:
     """Generates the prompt sequence and stages them into Antigravity's native queue.
 
@@ -266,18 +402,54 @@ def queue_prompts_into_antigravity(
         prompt, default_steps=steps, default_subagents=subagents
     )
     actual_prompt = parsed_prompt or prompt
-    actual_steps = parsed_steps if parsed_steps != 5 or steps == 5 else steps
-    actual_subagents = parsed_subagents if parsed_subagents > 0 else subagents
+    actual_steps = parsed_steps
+    actual_subagents = parsed_subagents
 
     if custom_prompts:
         prompts = list(custom_prompts)[:actual_steps]
+    elif use_ai:
+        ai_prompts = synthesize_bespoke_followups_via_flash(
+            actual_prompt, steps=actual_steps, subagents=actual_subagents, timeout_s=ai_timeout, model=model
+        )
+        if ai_prompts:
+            prompts = ai_prompts[:actual_steps]
+            if actual_subagents > 0:
+                formatted_ai = []
+                for p in prompts:
+                    if "subagent" not in p.lower():
+                        team_note = (
+                            f" (with {actual_subagents} subagents)"
+                            if actual_subagents > 1
+                            else " (with 1 subagent)"
+                        )
+                        formatted_ai.append(f"{p.rstrip('.')}{team_note}")
+                    else:
+                        formatted_ai.append(p)
+                prompts = formatted_ai
+        else:
+            if not as_json:
+                print("⚠️ AI synthesis unavailable or timed out; falling back to deterministic template.")
+            manifest = generate_followup_queue(
+                actual_prompt, count=actual_steps, max_subagents=actual_subagents, domain_override=domain_override
+            )
+            prompts = [msg.prompt for msg in manifest.messages]
     else:
-        manifest = generate_followup_queue(actual_prompt, count=actual_steps, max_subagents=actual_subagents)
+        manifest = generate_followup_queue(
+            actual_prompt, count=actual_steps, max_subagents=actual_subagents, domain_override=domain_override
+        )
         prompts = [msg.prompt for msg in manifest.messages]
 
     if not prompts:
-        print("❌ No prompts generated.")
+        if as_json:
+            print("[]")
+        else:
+            print("❌ No prompts generated.")
         return []
+
+    if as_json:
+        payload = [{"step": i + 1, "prompt": p} for i, p in enumerate(prompts)]
+        print(json.dumps(payload, indent=2))
+        return prompts
 
     print(f"\n📋 Generated {len(prompts)} Follow-Up Prompts for: \"{actual_prompt}\"")
     print(f"👥 Subagents per team: {actual_subagents if actual_subagents > 0 else 'None (Single Agent)'}\n")
@@ -285,28 +457,23 @@ def queue_prompts_into_antigravity(
         preview = p if len(p) <= 80 else p[:77] + "..."
         print(f"   [{i + 1}/{len(prompts)}] {preview}")
 
+    if dry_run:
+        print("\n🔍 Dry run active: Prompts previewed above. Zero clipboard or keystrokes sent.")
+        return prompts
+
     # Determine delivery routing
     target_conv_id: Optional[str] = None
-    should_use_targeted = False
-
     if delivery_mode == "targeted":
         target_conv_id = resolve_conversation_id(conversation_id=conversation_id, environ=environ)
         if not target_conv_id:
             raise ValueError("Targeted delivery requested but no conversation ID could be resolved.")
-        should_use_targeted = True
-    elif delivery_mode == "gui":
-        should_use_targeted = False
     elif delivery_mode == "auto":
-        if conversation_id is not None and bool(str(conversation_id).strip()):
+        if conversation_id and str(conversation_id).strip():
             target_conv_id = resolve_conversation_id(conversation_id=conversation_id, environ=environ)
-            should_use_targeted = bool(target_conv_id)
         elif custom_prompts and len(custom_prompts) == 1 and str(custom_prompts[0]).strip().startswith("/g"):
             target_conv_id = resolve_conversation_id(conversation_id=None, environ=environ)
-            should_use_targeted = bool(target_conv_id)
-        else:
-            should_use_targeted = False
 
-    if should_use_targeted and target_conv_id:
+    if target_conv_id:
         print(f"\n🎯 Targeted Delivery Active: Routing directly to conversation '{target_conv_id}'")
         print(f"   (Zero focus stealing, zero window switching, zero cross-chat pollution)\n")
 
@@ -325,6 +492,12 @@ def queue_prompts_into_antigravity(
                 time.sleep(min(delay_between_steps, 0.05))
 
         print(f"\n🎉 Done! All {len(prompts)} prompts are delivered to conversation '{target_conv_id}'.")
+        return prompts
+
+    # Non-macOS safety check
+    if sys.platform != "darwin":
+        print(f"\nℹ️ Non-macOS platform ({sys.platform}) detected. Direct AppleScript GUI paste skipped.")
+        print(f"   Prompts generated above can be piped or used in scripts.")
         return prompts
 
     # Fallback to AppleScript UI paster if outside Antigravity environment
@@ -380,6 +553,40 @@ def main() -> int:
         default="auto",
         help="Delivery mode: 'auto' (targeted if conv ID or /g, else gui), 'targeted', or 'gui'",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate and preview prompts without clipboard or UI dispatch",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output generated prompts as JSON to stdout",
+    )
+    parser.add_argument(
+        "--domain",
+        type=str,
+        choices=["code", "ux", "research"],
+        default=None,
+        help="Explicit domain override for generated prompts",
+    )
+    parser.add_argument(
+        "--ai",
+        action="store_true",
+        help="Use Gemini Flash via agy CLI to synthesize bespoke prompts (fails open to deterministic templates)",
+    )
+    parser.add_argument(
+        "--ai-timeout",
+        type=float,
+        default=12.0,
+        help="Timeout in seconds for AI prompt synthesis (default: 12.0s)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gemini-3.8-flash-low",
+        help="Model to use for AI synthesis (default: gemini-3.8-flash-low)",
+    )
 
     args = parser.parse_args()
 
@@ -391,6 +598,12 @@ def main() -> int:
         countdown_seconds=args.countdown,
         conversation_id=args.conversation_id,
         delivery_mode=args.delivery_mode,
+        dry_run=args.dry_run,
+        as_json=args.json,
+        domain_override=args.domain,
+        use_ai=args.ai,
+        ai_timeout=args.ai_timeout,
+        model=args.model,
     )
     return 0
 

@@ -55,6 +55,27 @@ STRATUM_POLICIES: dict[ContextStratum, dict[str, str]] = {
 }
 
 
+_TARGET_KEYS = (
+    "CommandLine",
+    "command",
+    "cmd",
+    "AbsolutePath",
+    "TargetFile",
+    "file_path",
+    "path",
+    "Url",
+    "url",
+    "SearchPath",
+    "SearchDirectory",
+    "target",
+    "Pattern",
+    "Query",
+    "query",
+    "Recipient",
+    "recipient",
+)
+
+
 def extract_tool_target(tool_name: str, args: Any) -> str:
     """Extract a concise target identifier from tool invocation arguments."""
     if not args:
@@ -73,28 +94,7 @@ def extract_tool_target(tool_name: str, args: Any) -> str:
     if not isinstance(args, dict):
         return str(args)[:120]
 
-    # Priority target keys based on common tool signatures
-    target_keys = [
-        "CommandLine",
-        "command",
-        "cmd",
-        "AbsolutePath",
-        "TargetFile",
-        "file_path",
-        "path",
-        "Url",
-        "url",
-        "SearchPath",
-        "SearchDirectory",
-        "target",
-        "Pattern",
-        "Query",
-        "query",
-        "Recipient",
-        "recipient",
-    ]
-
-    for key in target_keys:
+    for key in _TARGET_KEYS:
         if key in args and args[key]:
             val = str(args[key])
             if key in ("SearchPath", "SearchDirectory") and ("Query" in args or "Pattern" in args):
@@ -268,28 +268,20 @@ def _assign_turn_indices(steps: list[dict[str, Any]]) -> list[int]:
             turn_indices.append(current)
         return turn_indices
 
-    # Check if user inputs exist to demarcate turns
-    has_user_inputs = any(
-        (
+    # Demarcate turns by user inputs in a single pass
+    turn_indices = []
+    turn_counter = -1
+    for s in steps:
+        is_user = (
             s.get("type") in ("USER_INPUT", "user")
             or s.get("role") == "user"
             or s.get("source") == "USER_EXPLICIT"
         )
-        for s in steps
-    )
+        if is_user:
+            turn_counter += 1
+        turn_indices.append(max(0, turn_counter))
 
-    if has_user_inputs:
-        turn_indices = []
-        turn_counter = -1
-        for s in steps:
-            is_user = (
-                s.get("type") in ("USER_INPUT", "user")
-                or s.get("role") == "user"
-                or s.get("source") == "USER_EXPLICIT"
-            )
-            if is_user:
-                turn_counter += 1
-            turn_indices.append(max(0, turn_counter))
+    if turn_counter >= 0:
         return turn_indices
 
     # Fallback to step_index or index position
@@ -363,12 +355,17 @@ def prune_turn_transcript(
                     )
                     output_field = "output" if "output" in call else "result"
                     raw_call_output = call[output_field]
+                    call_status = call.get("status") or (
+                        "Failed" if call.get("is_error") or call.get("error") else "Completed"
+                    )
+                    call_disk_log = call.get("disk_log_path") or call.get("log_ref")
                     call[output_field] = tombstone_tool_call(
                         tool_name=call_name,
                         args=call_args,
                         raw_output=raw_call_output,
+                        disk_log_path=call_disk_log,
                         max_preview_lines=max_preview_lines,
-                        status="Completed",
+                        status=call_status,
                     )
                     call["is_tombstoned"] = True
 

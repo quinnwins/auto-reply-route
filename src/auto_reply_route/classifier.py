@@ -82,110 +82,121 @@ class HumanIntentClassifier:
         r"\b(?:build|implement|code|create|add|scaffold|write|wire\s*up|hook\s*up|set\s*up|setup|integrate|connect|fix|patch|refactor|delete|remove|compile|test|deploy|migrate|make|send|export|generate|install|sync|let)\b",
     ]
 
+    # Precompiled combined patterns for sub-millisecond evaluation
+    _EXPLICIT_PREFIX_RE = re.compile(
+        r"^\s*(?:\[\s*(?:[1-9]|1[0-2])\s*\]|(?:[1-9]|1[0-2])\s*:\s+|(?:[1-9]|1[0-2])\s+steps?:\s+)",
+        re.IGNORECASE,
+    )
+    _NON_WORD_RE = re.compile(r"[^\w\s]+")
+
+    @classmethod
+    def _create_classification(
+        cls,
+        tier: PromptIntentTier,
+        confidence: float,
+        reason: str,
+        suggested_steps: int,
+        cleaned_prompt: str,
+        bypass_route_generation: bool,
+        explicit_prefix_override: bool = False,
+    ) -> IntentClassification:
+        return IntentClassification(
+            tier=tier,
+            confidence=confidence,
+            reason=reason,
+            suggested_steps=suggested_steps,
+            extracted_subject=cleaned_prompt,
+            bypass_route_generation=bypass_route_generation,
+            explicit_prefix_override=explicit_prefix_override,
+            cleaned_prompt=cleaned_prompt,
+        )
+
     @classmethod
     def classify(cls, raw_prompt: str) -> IntentClassification:
         """Classifies a human prompt into Tier 0, Tier 1, or Tier 2."""
         stripped = raw_prompt.strip()
         if not stripped:
-            return IntentClassification(
+            return cls._create_classification(
                 tier=PromptIntentTier.DIRECT_ANSWER,
                 confidence=1.0,
                 reason="Empty prompt defaults to direct response",
                 suggested_steps=0,
-                extracted_subject="",
-                bypass_route_generation=True,
-                explicit_prefix_override=False,
                 cleaned_prompt="",
+                bypass_route_generation=True,
             )
 
         # 1. Check for explicit step prefix: e.g. "[4] Build...", "4: ...", "[3] what feature are we missing?"
         budget, cleaned_prompt = PromptNormalizer.extract_step_budget(stripped, default=1)
-        has_bracket_prefix = bool(re.match(r"^\s*\[\s*\d{1,2}\s*\]", stripped))
-        has_colon_prefix = bool(re.match(r"^\s*\d{1,2}\s*:\s+", stripped))
-        has_words_prefix = bool(re.match(r"^\s*\d{1,2}\s+steps?:\s+", stripped, re.IGNORECASE))
-        is_explicit_prefix = has_bracket_prefix or has_colon_prefix or has_words_prefix
-
-        # If the user explicitly prefixed a step count, honor their explicit command
-        if is_explicit_prefix:
-            return IntentClassification(
+        if cls._EXPLICIT_PREFIX_RE.match(stripped):
+            return cls._create_classification(
                 tier=PromptIntentTier.CODE_BUILD,
                 confidence=0.99,
                 reason=f"User explicitly requested {budget}-step route via prefix",
                 suggested_steps=budget,
-                extracted_subject=cleaned_prompt,
+                cleaned_prompt=cleaned_prompt,
                 bypass_route_generation=False,
                 explicit_prefix_override=True,
-                cleaned_prompt=cleaned_prompt,
             )
 
         p_lower = cleaned_prompt.lower()
 
         # 2. Check for Single-Word Meta-Commands
-        cleaned_word = re.sub(r"[^\w\s]", "", p_lower).strip()
+        cleaned_word = cls._NON_WORD_RE.sub("", p_lower).strip()
         if cleaned_word in cls.META_COMMANDS:
-            return IntentClassification(
+            return cls._create_classification(
                 tier=PromptIntentTier.DIRECT_ANSWER,
                 confidence=0.98,
                 reason=f"Detected single-word informational command '{cleaned_word}'",
                 suggested_steps=0,
-                extracted_subject=cleaned_prompt,
-                bypass_route_generation=True,
-                explicit_prefix_override=False,
                 cleaned_prompt=cleaned_prompt,
+                bypass_route_generation=True,
             )
 
         # 3. Check for Tier 1: Design & UX Critique
-        for pattern in cls.UX_CRITIQUE_PATTERNS:
-            if re.search(pattern, p_lower):
-                return IntentClassification(
-                    tier=PromptIntentTier.UX_CRAFT_AUDIT,
-                    confidence=0.95,
-                    reason="Detected design critique or anti-slop overhaul intent",
-                    suggested_steps=3,
-                    extracted_subject=cleaned_prompt,
-                    bypass_route_generation=False,
-                    explicit_prefix_override=False,
-                    cleaned_prompt=cleaned_prompt,
-                )
+        if any(re.search(pat, p_lower) for pat in cls.UX_CRITIQUE_PATTERNS):
+            return cls._create_classification(
+                tier=PromptIntentTier.UX_CRAFT_AUDIT,
+                confidence=0.95,
+                reason="Detected design critique or anti-slop overhaul intent",
+                suggested_steps=3,
+                cleaned_prompt=cleaned_prompt,
+                bypass_route_generation=False,
+            )
 
         # 4. Check for Tier 0: Strategic Advisory, GTM, or Open Questions
-        for pattern in cls.STRATEGIC_ADVISORY_PATTERNS:
-            if re.search(pattern, p_lower):
-                return IntentClassification(
-                    tier=PromptIntentTier.DIRECT_ANSWER,
-                    confidence=0.95,
-                    reason="Detected strategic, business, or open advisory consultation",
-                    suggested_steps=0,
-                    extracted_subject=cleaned_prompt,
-                    bypass_route_generation=True,
-                    explicit_prefix_override=False,
-                    cleaned_prompt=cleaned_prompt,
-                )
+        if any(re.search(pat, p_lower) for pat in cls.STRATEGIC_ADVISORY_PATTERNS):
+            return cls._create_classification(
+                tier=PromptIntentTier.DIRECT_ANSWER,
+                confidence=0.95,
+                reason="Detected strategic, business, or open advisory consultation",
+                suggested_steps=0,
+                cleaned_prompt=cleaned_prompt,
+                bypass_route_generation=True,
+            )
 
         # 5. Check for general questions without code actions
-        is_question_structure = any(re.search(pat, p_lower) for pat in cls.QUESTION_STARTERS) or p_lower.endswith("?")
+        is_question_structure = (
+            any(re.search(pat, p_lower) for pat in cls.QUESTION_STARTERS)
+            or p_lower.endswith("?")
+        )
         has_code_action = any(re.search(pat, p_lower) for pat in cls.CODE_ACTION_VERBS)
 
         if is_question_structure and not has_code_action:
-            return IntentClassification(
+            return cls._create_classification(
                 tier=PromptIntentTier.DIRECT_ANSWER,
                 confidence=0.90,
                 reason="Detected informational or conceptual inquiry without code implementation directives",
                 suggested_steps=0,
-                extracted_subject=cleaned_prompt,
-                bypass_route_generation=True,
-                explicit_prefix_override=False,
                 cleaned_prompt=cleaned_prompt,
+                bypass_route_generation=True,
             )
 
         # 6. Otherwise Tier 2: Code Build & Implementation Task
-        return IntentClassification(
+        return cls._create_classification(
             tier=PromptIntentTier.CODE_BUILD,
             confidence=0.92,
             reason="Detected concrete engineering feature, maintenance, or bugfix build",
             suggested_steps=1,
-            extracted_subject=cleaned_prompt,
-            bypass_route_generation=False,
-            explicit_prefix_override=False,
             cleaned_prompt=cleaned_prompt,
+            bypass_route_generation=False,
         )

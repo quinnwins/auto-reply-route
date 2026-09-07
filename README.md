@@ -113,14 +113,32 @@ Pre-stage multi-step follow-ups directly into Antigravity's visible **Queued Mes
   /q Investigate memory leak 3 steps
   ```
 
-### The 5-Phase Problem Trajectory
+### Domain-Aware Engineering Trajectories
 
-Prompts are mapped across 5 macroscopic engineering phases:
-1. **Adversarial Refutation & Real Constraints:** Research actual mechanisms with explicit permission to refute earlier claims or unproven assumptions.
-2. **Least-Complicated Prototype:** Build the minimal prototype in the least complicated way possible.
-3. **Feasibility & Investment Check:** Evaluate whether continuing is worth the effort, investment, and probability of success.
-4. **Adversarial Go / No-Go:** Critically evaluate why others failed at this exact problem.
-5. **Concrete Synthesis Report:** Deliver clear findings, working proof, diagrams, and operational trade-offs.
+Prompts are mapped to their true operational domain—never forcing venture-capital questionnaires onto routine feature work or bugfixes:
+
+- **Software Engineering & Features (Default):** Architecture & Flow Invariants ➔ Core Working Implementation ➔ Slop Pruning & Clean Refactoring ➔ Boundary Probes & Automated Tests ➔ Operational Walkthrough.
+- **Bugfixing & Defect Repair:** Empirical Root Cause ➔ Minimal Repro Test ➔ Surgical Blast-Radius Fix ➔ Concurrency & Invariant Probe ➔ Zero-Regression Verification.
+- **UI / Craft Polish:** Ergonomics & 44px Tap Hitboxes ➔ Transitions & Responsive Layout ➔ Plain Everyday Microcopy ➔ Screenshot Verification ➔ Design Walkthrough.
+- **Venture & 0-to-1 Inventions (Explicit Venture Prompts):** Physical / Constraint Refutation ➔ Minimal Feasibility Spike ➔ Investment & ROI Reality Check ➔ Adversarial Go/No-Go Audit ➔ Executive Synthesis Memo.
+
+### CLI & Offline Preview (`queue-paster`)
+
+Run standalone offline in your terminal without any active LLM session or API key:
+
+```bash
+# Preview generated prompts without touching clipboard or sending keystrokes
+queue-paster "implement OAuth2 authentication flow" --dry-run
+
+# Output structured JSON for automation or shell pipelines
+queue-paster "reconcile daily worker logs" --json --steps 3
+
+# Explicitly override domain if desired
+queue-paster "audit responsive layout" --domain ux --steps 3 --dry-run
+
+# Optional AI synthesis via Gemini Flash (fails open to deterministic templates)
+queue-paster "refactor billing webhooks" --ai --steps 4 --dry-run
+```
 
 ---
 

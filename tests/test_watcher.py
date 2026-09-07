@@ -183,3 +183,34 @@ class TestTerminalAndRouteCompletion:
         decision = watcher.check_watchdog(manifest, now=200.0)
         assert decision.action == WatchdogAction.NOOP
         assert decision.remaining_steps == 0
+
+    def test_tool_call_does_not_set_heartbeat_lease(
+        self,
+        watcher: ToolUsageWatcher,
+        manifest: RouteManifest,
+    ):
+        watcher.start_epoch(epoch=1, step_index=0, total_steps=3, step_prompt="Initial", now=100.0)
+        watcher.record_tool_call("run_command", epoch=1, now=100.0)
+        assert watcher.last_heartbeat_timestamp is None
+
+        # At 146.0s (inactivity = 46s >= 45s timeout), since no background heartbeat was registered,
+        # it should fire NUDGE rather than being masked by a pseudo-heartbeat
+        decision = watcher.check_watchdog(manifest, now=146.0)
+        assert decision.action == WatchdogAction.NUDGE
+
+    def test_final_running_step_nudges_on_inactivity(
+        self,
+        watcher: ToolUsageWatcher,
+        manifest: RouteManifest,
+    ):
+        # Step 2 of 3 is the final step
+        manifest.current_step_idx = 2
+        manifest.steps[0].status = StepStatus.COMPLETED
+        manifest.steps[1].status = StepStatus.COMPLETED
+        manifest.steps[2].status = StepStatus.RUNNING
+
+        watcher.start_epoch(epoch=3, step_index=2, total_steps=3, step_prompt="Final step", now=100.0)
+        # 50s of inactivity on final running step should fire NUDGE, not NOOP
+        decision = watcher.check_watchdog(manifest, now=150.0)
+        assert decision.action == WatchdogAction.NUDGE
+

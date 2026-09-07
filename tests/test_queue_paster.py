@@ -224,3 +224,129 @@ def test_trailing_step_configuration():
     assert ask_g is True
 
 
+def test_technical_prefixes_and_command_words_preserved():
+    from auto_reply_route.queue_paster import parse_queue_command
+
+    # Technical numbers must not be stripped as steps
+    p, n, s = parse_queue_command("/q 404 error handler")
+    assert p == "404 error handler"
+    assert n == 5
+
+    p, n, s = parse_queue_command("/q 2fa login flow")
+    assert p == "2fa login flow"
+    assert n == 5
+
+    p, n, s = parse_queue_command("/q 500 server crash recovery")
+    assert p == "500 server crash recovery"
+    assert n == 5
+
+    # Domain prompts with 'queue' or 'q' must not be stripped unless followed by numbers or with slash
+    p, n, s = parse_queue_command("queue implementation in C")
+    assert p == "queue implementation in C"
+    assert n == 5
+
+    p, n, s = parse_queue_command("q learning agent in pytorch")
+    assert p == "q learning agent in pytorch"
+    assert n == 5
+
+
+def test_extract_json_array():
+    from auto_reply_route.queue_paster import extract_json_array
+
+    # 1. Direct JSON array
+    assert extract_json_array('["prompt 1", "prompt 2"]') == ["prompt 1", "prompt 2"]
+
+    # 2. Markdown fenced code block
+    fenced = '```json\n["step a", "step b"]\n```'
+    assert extract_json_array(fenced) == ["step a", "step b"]
+
+    # 3. Trailing commentary or prompt reminder hooks
+    with_hook = (
+        '["investigate canvas", "build prototype"]\n\n'
+        'For every decision, ask what the best expert in that field would do...'
+    )
+    assert extract_json_array(with_hook) == ["investigate canvas", "build prototype"]
+
+    # 4. Invalid or empty
+    assert extract_json_array("") is None
+    assert extract_json_array("not json at all") is None
+    assert extract_json_array('{"key": "val"}') is None
+
+
+def test_synthesize_bespoke_followups_via_flash_success():
+    from auto_reply_route.queue_paster import synthesize_bespoke_followups_via_flash
+    from unittest.mock import patch, MagicMock
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = '["Task 1: Scaffold routing", "Task 2: Implement crew UI", "Task 3: Integration tests"]'
+
+    with patch("shutil.which", return_value="/mock/bin/agy"), \
+         patch("subprocess.run", return_value=mock_proc):
+        prompts = synthesize_bespoke_followups_via_flash("canvassing route optimizer", steps=3)
+        assert prompts == [
+            "Task 1: Scaffold routing",
+            "Task 2: Implement crew UI",
+            "Task 3: Integration tests",
+        ]
+
+
+def test_synthesize_bespoke_followups_via_flash_fail_open():
+    import subprocess
+    from unittest.mock import patch, MagicMock
+    from auto_reply_route.queue_paster import synthesize_bespoke_followups_via_flash
+
+    # 1. Missing executable
+    with patch("shutil.which", return_value=None), \
+         patch("os.path.exists", return_value=False):
+        assert synthesize_bespoke_followups_via_flash("test prompt") is None
+
+    # 2. Timeout
+    with patch("shutil.which", return_value="/mock/bin/agy"), \
+         patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="agy", timeout=12.0)):
+        assert synthesize_bespoke_followups_via_flash("test prompt") is None
+
+    # 3. Non-zero exit code
+    mock_err = MagicMock(returncode=1, stdout="Error")
+    with patch("shutil.which", return_value="/mock/bin/agy"), \
+         patch("subprocess.run", return_value=mock_err):
+        assert synthesize_bespoke_followups_via_flash("test prompt") is None
+
+    # 4. Malformed output
+    mock_bad = MagicMock(returncode=0, stdout="Random non-json chatter")
+    with patch("shutil.which", return_value="/mock/bin/agy"), \
+         patch("subprocess.run", return_value=mock_bad):
+        assert synthesize_bespoke_followups_via_flash("test prompt") is None
+
+
+def test_queue_prompts_with_ai_flag_and_fallback():
+    from unittest.mock import patch
+    from auto_reply_route.queue_paster import queue_prompts_into_antigravity
+
+    # Succeeded AI synthesis with subagents formatting
+    with patch("auto_reply_route.queue_paster.synthesize_bespoke_followups_via_flash", return_value=["Do step 1", "Do step 2"]):
+        prompts = queue_prompts_into_antigravity(
+            prompt="implement offline sync",
+            steps=2,
+            subagents=3,
+            use_ai=True,
+            dry_run=True,
+        )
+        assert len(prompts) == 2
+        assert "with 3 subagents" in prompts[0]
+        assert "with 3 subagents" in prompts[1]
+
+    # Failed AI synthesis falls open to deterministic template
+    with patch("auto_reply_route.queue_paster.synthesize_bespoke_followups_via_flash", return_value=None):
+        prompts = queue_prompts_into_antigravity(
+            prompt="implement offline sync",
+            steps=3,
+            subagents=0,
+            use_ai=True,
+            dry_run=True,
+        )
+        assert len(prompts) == 3
+        # Should be the engineering deterministic prompts
+        assert any("sync" in p.lower() or "offline" in p.lower() for p in prompts)
+
+

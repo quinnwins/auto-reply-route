@@ -185,8 +185,8 @@ class GeminiRouteRefiner:
 
         # 1. Build concise route summary (minimal tokens to keep Flash latency under 500ms)
         summary_lines = []
-        for step in manifest.steps:
-            summary_lines.append(f"Step {step.index}: {step.title} | {step.primary_prompt[:120]}")
+        for idx, step in enumerate(manifest.steps, start=1):
+            summary_lines.append(f"Step {idx}: {step.title} | {step.primary_prompt[:120]}")
         route_summary = "\n".join(summary_lines)
 
         # 2. Query backend
@@ -201,11 +201,11 @@ class GeminiRouteRefiner:
             logger.debug("Refiner backend error: %s", exc)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
 
         # 3. Fail-Open Check: if no response or timeout, return unmodified manifest
         if not raw_response:
             manifest.metadata["refiner_verdict"] = "FAIL_OPEN_UNMODIFIED"
-            manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
             return manifest
 
         # 4. Parse JSON using raw_decode to ignore any environment hook reminders or trailing output
@@ -213,20 +213,15 @@ class GeminiRouteRefiner:
             start_idx = raw_response.find("{")
             if start_idx == -1:
                 manifest.metadata["refiner_verdict"] = "FAIL_OPEN_INVALID_JSON"
-                manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
                 return manifest
             decoder = json.JSONDecoder()
             data, _ = decoder.raw_decode(raw_response[start_idx:])
             if not isinstance(data, dict):
                 manifest.metadata["refiner_verdict"] = "FAIL_OPEN_INVALID_JSON"
-                manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
                 return manifest
         except Exception:
             manifest.metadata["refiner_verdict"] = "FAIL_OPEN_INVALID_JSON"
-            manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
             return manifest
-
-        manifest.metadata["refiner_latency_ms"] = round(elapsed_ms, 2)
 
         raw_status = data.get("status", "PASS")
         if not isinstance(raw_status, str):
@@ -251,9 +246,6 @@ class GeminiRouteRefiner:
         try:
             applied_count = 0
             for patch in raw_patches:
-                if not isinstance(patch, dict):
-                    continue
-
                 raw_step_idx = patch.get("step_index")
                 try:
                     step_idx = int(raw_step_idx) if raw_step_idx is not None else None
@@ -276,7 +268,7 @@ class GeminiRouteRefiner:
                         if team_directive and team_directive not in replacement:
                             replacement = f"{replacement.rstrip('.')}. {team_directive}"
                         target_step.primary_prompt = replacement
-                        if target_step.alternatives:
+                        if target_step.alternatives and int(target_step.alternatives[0].rank) == 1:
                             target_step.alternatives[0].prompt_template = replacement
                         applied_count += 1
 

@@ -46,6 +46,13 @@ class ValidationResult:
     stats: dict[str, int] = field(default_factory=dict)
 
 
+_VAL_STEP_PATTERN = re.compile(r"^\s{0,2}(\d+)[.)]\s*(.*)$")
+_VAL_BULLET_PATTERN = re.compile(r"^(\s{2,}|\t+)[-*+]\s+(.*)$")
+_VAL_UNINDENTED_BULLET_PATTERN = re.compile(r"^[-*+]\s+(.*)$")
+_VAL_BOLD_ITALIC_RE = re.compile(r"^\*{1,2}(.*?)\*{1,2}:\s*(.*)$")
+_VAL_BRACKETED_RE = re.compile(r"^\[(.*?)\]:?\s*(.*)$")
+
+
 class RouteValidator:
     """Lints and validates .route.md playbooks for headers, numbering, formats, and assertions."""
 
@@ -91,10 +98,6 @@ class RouteValidator:
             )
 
         # 2. Numbered steps and bullets analysis
-        step_pattern = re.compile(r"^\s{0,2}(\d+)[.)]\s*(.*)$")
-        bullet_pattern = re.compile(r"^(\s{2,}|\t+)[-*+]\s+(.*)$")
-        unindented_bullet_pattern = re.compile(r"^[-*+]\s+(.*)$")
-
         step_indices_found: list[tuple[int, int]] = []  # (step_number, line_num)
         current_step_num: Optional[int] = None
         current_step_line: Optional[int] = None
@@ -109,7 +112,7 @@ class RouteValidator:
             if header_found and line_num == header_line:
                 continue
 
-            step_match = step_pattern.match(line)
+            step_match = _VAL_STEP_PATTERN.match(line)
             if step_match:
                 # Check previous step body
                 if current_step_num is not None and not current_step_has_body:
@@ -131,7 +134,7 @@ class RouteValidator:
 
             # Unindented bullet check (outside numbered step)
             if current_step_num is None:
-                if unindented_bullet_pattern.match(line) or bullet_pattern.match(line):
+                if _VAL_UNINDENTED_BULLET_PATTERN.match(line) or _VAL_BULLET_PATTERN.match(line):
                     warnings.append(
                         ValidationIssue(
                             "WARNING",
@@ -142,7 +145,7 @@ class RouteValidator:
                 continue
 
             # Check unindented bullet inside step
-            if unindented_bullet_pattern.match(line):
+            if _VAL_UNINDENTED_BULLET_PATTERN.match(line):
                 warnings.append(
                     ValidationIssue(
                         "WARNING",
@@ -152,7 +155,7 @@ class RouteValidator:
                 )
 
             # Check indented bullet
-            bullet_match = bullet_pattern.match(line)
+            bullet_match = _VAL_BULLET_PATTERN.match(line)
             if bullet_match:
                 bullet_body = bullet_match.group(2).strip()
                 lower_bullet = bullet_body.lower()
@@ -190,8 +193,8 @@ class RouteValidator:
                 step_alt_count += 1
 
                 # Recognized bullet patterns
-                is_bold_or_italic = bool(re.match(r"^\*{1,2}(.*?)\*{1,2}:\s*(.*)$", bullet_body))
-                is_bracketed = bool(re.match(r"^\[(.*?)\]:?\s*(.*)$", bullet_body))
+                is_bold_or_italic = bool(_VAL_BOLD_ITALIC_RE.match(bullet_body))
+                is_bracketed = bool(_VAL_BRACKETED_RE.match(bullet_body))
                 is_plain_colon = ":" in bullet_body and len(bullet_body.split(":", 1)[0].split()) <= 6
 
                 if not (is_bold_or_italic or is_bracketed or is_plain_colon):
@@ -304,9 +307,9 @@ class RouteValidator:
             )
 
         stem = path.name
-        for suffix in [".route.md", ".route", ".md"]:
+        for suffix in (".route.md", ".route", ".md"):
             if stem.endswith(suffix):
-                stem = stem[:-len(suffix)]
+                stem = stem.removesuffix(suffix)
                 break
 
         return cls.validate_content(content, filepath=str(path), route_id=stem)
@@ -1248,6 +1251,23 @@ def cmd_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    """Run interactive or automated prototype simulation."""
+    from auto_reply_route.prototype import run_prototype
+
+    mode = "interactive" if getattr(args, "interactive", False) else "auto"
+    run_prototype(
+        prompt=getattr(args, "prompt", None),
+        mode=mode,
+        output_json=getattr(args, "json", False),
+        conv_id=getattr(args, "conversation_id", None),
+        workspace_dir=getattr(args, "dir", "."),
+        delay=0.0 if getattr(args, "json", False) else getattr(args, "delay", 0.2),
+        cleanup=getattr(args, "cleanup", True),
+    )
+    return 0
+
+
 # ============================================================================
 # Argument Parser & CLI Entry Point
 # ============================================================================
@@ -1527,6 +1547,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target workspace directory for workspace AGENTS.md ingestion",
     )
 
+    # 12. demo
+    demo_parser = subparsers.add_parser(
+        "demo", help="Run interactive/automated auto-reply-route prototype simulation"
+    )
+    demo_parser.add_argument(
+        "--interactive", "-i", action="store_true", default=False, help="Run in interactive step-by-step mode"
+    )
+    demo_parser.add_argument(
+        "--auto", "-a", action="store_true", default=True, help="Run with automated demonstration pacing"
+    )
+    demo_parser.add_argument(
+        "--json", action="store_true", default=False, help="Output machine-readable JSON simulation trace"
+    )
+    demo_parser.add_argument(
+        "--prompt", "-p", type=str, default=None, help="Initial prompt to seed trajectory"
+    )
+    demo_parser.add_argument(
+        "--conversation-id", "-c", type=str, default=None, help="Conversation ID scope"
+    )
+    demo_parser.add_argument(
+        "--dir", "-d", type=str, default=".", help="Target workspace directory"
+    )
+    demo_parser.add_argument(
+        "--delay", type=float, default=0.2, help="Pacing delay in seconds for automated mode"
+    )
+    demo_parser.add_argument(
+        "--no-cleanup", dest="cleanup", action="store_false", default=True, help="Retain demo queue manifest on disk"
+    )
+
     return parser
 
 
@@ -1546,6 +1595,7 @@ def main(args: list[str] | None = None) -> int:
         "init-dna",
         "queue",
         "watch",
+        "demo",
         "-h",
         "--help",
     }
@@ -1600,29 +1650,25 @@ def main(args: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if parsed.command == "run":
-        return cmd_run(parsed)
-    elif parsed.command == "validate":
-        return cmd_validate(parsed)
-    elif parsed.command == "mine":
-        return cmd_mine(parsed)
-    elif parsed.command == "hook":
-        return cmd_hook(parsed)
-    elif parsed.command == "suggest":
-        return cmd_suggest(parsed)
-    elif parsed.command == "build":
-        return cmd_build(parsed)
-    elif parsed.command == "init":
-        return cmd_init(parsed)
-    elif parsed.command == "init-dna":
-        return cmd_init_dna(parsed)
-    elif parsed.command == "queue":
-        return cmd_queue(parsed)
-    elif parsed.command == "watch":
-        return cmd_watch(parsed)
-    else:
-        parser.print_help()
-        return 1
+    command_dispatch = {
+        "run": cmd_run,
+        "validate": cmd_validate,
+        "mine": cmd_mine,
+        "hook": cmd_hook,
+        "suggest": cmd_suggest,
+        "build": cmd_build,
+        "init": cmd_init,
+        "init-dna": cmd_init_dna,
+        "queue": cmd_queue,
+        "watch": cmd_watch,
+        "demo": cmd_demo,
+    }
+    handler = command_dispatch.get(parsed.command)
+    if handler is not None:
+        return handler(parsed)
+
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":

@@ -369,3 +369,36 @@ class TestHeadlessWatcherMode:
         snap3 = watcher.snapshot()
         assert snap3["completed"] == 1
         assert snap3["status"] == "COMPLETED"
+
+    def test_format_status_card_perfect_border_alignment(self, tmp_path: Path) -> None:
+        """Verify that every line of the terminal status card has exactly 70 visible chars across all states."""
+        import re
+        conv_id = "test-alignment"
+        watcher = QueueWatcher(target_dir=tmp_path, conversation_id=conv_id)
+
+        def _assert_aligned(card: str) -> None:
+            lines = card.splitlines()
+            assert len(lines) > 0
+            for line in lines:
+                visible = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line)
+                assert len(visible) == 76, f"Line width {len(visible)} != 76: {visible!r}"
+
+        # 1. Empty state
+        _assert_aligned(watcher.format_status_card(None))
+
+        # 2. Running state
+        q = MessageQueueManifest(conversation_id=conv_id)
+        q.add_message("Implement resilient message bus with raft consensus")
+        q.add_message("Step 2: Add benchmarks and chaos tests")
+        _assert_aligned(watcher.format_status_card(q))
+
+        # 3. Paused state
+        q.pause("Human intervention")
+        _assert_aligned(watcher.format_status_card(q))
+
+        # 4. Completed state
+        q.resume()
+        q.pop_next_message()
+        q.pop_next_message()
+        _assert_aligned(watcher.format_status_card(q))
+

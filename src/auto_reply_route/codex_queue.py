@@ -75,7 +75,13 @@ class CodexQueue:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with open(self.root / (self.thread_id + ".lock"), "a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
+            try:
+                yield
+            finally:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                except OSError:
+                    pass
 
     def read(self):
         if not self.path.exists():

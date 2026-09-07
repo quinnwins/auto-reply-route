@@ -6,11 +6,10 @@ living-room verdict generation, and Stratum 3 screenshot evidence manifests.
 
 from __future__ import annotations
 
-import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Union
+import re
+from typing import Any, Optional
 
 
 @dataclass
@@ -144,6 +143,66 @@ class TeamReviewVerdict:
                 lines.append("")
 
         return "\n".join(lines).strip()
+
+
+# Precompiled regex patterns for adversarial audit synthesis
+_QA_EDGE_RE = re.compile(
+    r"\b(?:unhandled\s+(?:null|none)|off-by-one|infinite\s+loop|deadlock|race\s+condition)\b[^.\n]*",
+    re.IGNORECASE,
+)
+_QA_SHELL_TRUE_RE = re.compile(r"shell\s*=\s*True")
+_QA_DYNAMIC_EXEC_RE = re.compile(r"\b(?:eval|exec)\s*\(")
+_QA_CREDENTIALS_RE = re.compile(r"\b(?:sk-[a-zA-Z0-9]{15,}|AIza[0-9A-Za-z-_]{30,}|AKIA[0-9A-Z]{16})\b")
+_QA_SEC_VULN_RE = re.compile(r"\b(?:security\s+vulnerability|injection\s+risk|auth\s+bypass)[^.\n]*", re.IGNORECASE)
+_QA_TAUTOLOGICAL_RE = re.compile(r"assert\s+(?:True|1\s*==\s*1|not\s+False)\b")
+_QA_SKIPPED_RE = re.compile(r"@pytest\.mark\.skip|@unittest\.skip|\.skipTest\(")
+_QA_EMPTY_STUB_RE = re.compile(r"def\s+test_[a-zA-Z0-9_]+\s*\([^)]*\)\s*:\s*(?:pass|\.\.\.)\s*$", re.MULTILINE)
+_QA_FAILURES_RE = re.compile(r"\b(?:=== FAILURES ===|FAILED \(failures=|\bAssertionError\b)")
+
+_EXEC_PLUMBING_RE = re.compile(
+    r"\b(?:internal\s+server\s+error|database\s+connection\s+failed|sql\s+syntax\s+error|fetch\s+records\s+from\s+backend)\b",
+    re.IGNORECASE,
+)
+_EXEC_COMPLEXITY_RE = re.compile(
+    r"\b(?:overengineered|accidental\s+complexity|unnecessary\s+abstraction\s+layer)\b",
+    re.IGNORECASE,
+)
+_EXEC_HACK_PATTERNS = [
+    (re.compile(r"\b(?:TODO:?\s*hack|FIXME|HACK:?\s*temporary|workaround\s+for\s+now)\b", re.IGNORECASE), "Temporary hack or workaround marker"),
+    (re.compile(r"\b(?:monkey\s*patch|monkeypatching)\b", re.IGNORECASE), "Monkey patching detected in implementation"),
+    (re.compile(r"\b(?:revisit\s+later|quick\s+fix\s+for\s+now|ugly\s+hack)\b", re.IGNORECASE), "Acknowledged technical debt or quick-fix shortcut"),
+    (re.compile(r"\b(?:compromise\s+taken|rabbit\s+hole\s+gone\s+down)\b", re.IGNORECASE), "Unacceptable architectural compromise or rabbit hole"),
+]
+_EXEC_PRODUCT_RE = re.compile(
+    r"\b(?:feature\s+incomplete|broken\s+user\s+flow|confusing\s+ux|missing\s+core\s+requirement)\b",
+    re.IGNORECASE,
+)
+
+_INTEG_WIRING_PATTERNS = [
+    (re.compile(r"\b(?:ImportError|ModuleNotFoundError)\b"), "Broken module import encountered"),
+    (re.compile(r"\bAttributeError:\s*module\s+.*has\s+no\s+attribute\b"), "Missing attribute or function in module wiring"),
+    (re.compile(r"\bTypeError:\s*.*missing\s+\d+\s+required\s+positional\s+argument\b"), "Mismatched function call signature"),
+    (re.compile(r"\b(?:wiring\s+defect|wiring\s+error|unwired\s+component)\b", re.IGNORECASE), "Wiring defect identified between components"),
+    (re.compile(r"\bNotImplementedError\b"), "Unwired stub (NotImplementedError) remaining in pipeline"),
+]
+_INTEG_REGRESSION_RE = re.compile(
+    r"\b(?:regression\s+detected|breaking\s+change\s+to\s+public\s+api|broke\s+existing\s+tests?)\b",
+    re.IGNORECASE,
+)
+_INTEG_STATE_RE = re.compile(
+    r"\b(?:state\s+desync|data\s+loss|unsynced\s+cache|dirty\s+write|concurrency\s+race\s+on\s+state)\b",
+    re.IGNORECASE,
+)
+
+_VISUAL_CRAFT_PATTERNS = [
+    (re.compile(r"\b(?:sub-44px|tap\s+target\s+too\s+small|hitbox\s*<\s*44)\b", re.IGNORECASE), "Sub-44px tap hitbox violates touch ergonomics"),
+    (re.compile(r"\b(?:off-grid\s+pixel|arbitrary\s+margin|5px|7px|13px)\b", re.IGNORECASE), "Off-grid spacing violates 4/8pt rhythm"),
+    (re.compile(r"\b(?:pinched\s+corner|nested\s+radius\s+distortion)\b", re.IGNORECASE), "Pinched nested corner radius violates concentricity"),
+    (re.compile(r"\b(?:contrast\s+too\s+low|unreadable\s+text|layout\s+shift)\b", re.IGNORECASE), "Visual contrast or layout shift defect"),
+    (re.compile(r"\b(?:screenshot\s+missing|image\s+not\s+found|failed\s+to\s+capture)\b", re.IGNORECASE), "Missing or corrupt screenshot evidence"),
+]
+
+_GENERIC_FAILURE_RE = re.compile(r"\b(?:FAILED|ERROR|EXCEPTION|REJECTED)\b", re.IGNORECASE)
 
 
 class SubagentTeamOrchestrator:
@@ -636,10 +695,10 @@ class SubagentTeamOrchestrator:
 
         # 1. Edge Case Auditor
         edge_issues: list[str] = []
-        if re.search(r"\b(?:unhandled\s+(?:null|none)|off-by-one|infinite\s+loop|deadlock|race\s+condition)\b", text, re.IGNORECASE):
-            match = re.search(r"\b(?:unhandled\s+(?:null|none)|off-by-one|infinite\s+loop|deadlock|race\s+condition)[^.\n]*", text, re.IGNORECASE)
-            snippet = match.group(0) if match else "Edge case hazard detected"
-            edge_issues.append(f"Edge case flaw: {snippet.strip()}")
+        match = _QA_EDGE_RE.search(text)
+        if match:
+            snippet = match.group(0).strip()
+            edge_issues.append(f"Edge case flaw: {snippet}")
 
         if "zero_division" in text.lower() or "division by zero" in text.lower():
             edge_issues.append("Unhandled division by zero hazard")
@@ -663,23 +722,19 @@ class SubagentTeamOrchestrator:
 
         # 2. Security Auditor
         sec_issues: list[str] = []
-        # Shell injection checks
-        if re.search(r"shell\s*=\s*True", text) and ("shlex" not in text and "safe" not in text.lower()):
+        if _QA_SHELL_TRUE_RE.search(text) and ("shlex" not in text and "safe" not in text.lower()):
             sec_issues.append("Unsanitized shell=True invocation detected")
 
-        # Insecure execution
-        if re.search(r"\b(?:eval|exec)\s*\(", text):
+        if _QA_DYNAMIC_EXEC_RE.search(text):
             sec_issues.append("Unsafe dynamic code execution (eval/exec)")
 
-        # Credential / token exposure
-        if re.search(r"\b(?:sk-[a-zA-Z0-9]{15,}|AIza[0-9A-Za-z-_]{30,}|AKIA[0-9A-Z]{16})\b", text):
+        if _QA_CREDENTIALS_RE.search(text):
             sec_issues.append("Hardcoded API token or credential pattern discovered")
 
-        # Explicit security markers
-        if re.search(r"\b(?:security\s+vulnerability|injection\s+risk|auth\s+bypass)\b", text, re.IGNORECASE):
-            match = re.search(r"\b(?:security\s+vulnerability|injection\s+risk|auth\s+bypass)[^.\n]*", text, re.IGNORECASE)
-            snippet = match.group(0) if match else "Security vulnerability detected"
-            sec_issues.append(f"Security vulnerability: {snippet.strip()}")
+        sec_match = _QA_SEC_VULN_RE.search(text)
+        if sec_match:
+            snippet = sec_match.group(0).strip()
+            sec_issues.append(f"Security vulnerability: {snippet}")
 
         passed_sec = len(sec_issues) == 0
         defects.extend(sec_issues)
@@ -700,20 +755,16 @@ class SubagentTeamOrchestrator:
 
         # 3. Test Coverage Specialist
         test_issues: list[str] = []
-        # Tautological assertions
-        if re.search(r"assert\s+(?:True|1\s*==\s*1|not\s+False)\b", text):
+        if _QA_TAUTOLOGICAL_RE.search(text):
             test_issues.append("Tautological assertion (assert True) detected in test suite")
 
-        # Skipped tests under pressure
-        if re.search(r"@pytest\.mark\.skip|@unittest\.skip|\.skipTest\(", text):
+        if _QA_SKIPPED_RE.search(text):
             test_issues.append("Skipped test annotation detected — tests must run green without skipping")
 
-        # Empty test bodies
-        if re.search(r"def\s+test_[a-zA-Z0-9_]+\s*\([^)]*\)\s*:\s*(?:pass|\.\.\.)\s*$", text, re.MULTILINE):
+        if _QA_EMPTY_STUB_RE.search(text):
             test_issues.append("Empty test stub (pass/...) detected")
 
-        # Explicit failure logs
-        if re.search(r"\b(?:=== FAILURES ===|FAILED \(failures=|\bAssertionError\b)", text):
+        if _QA_FAILURES_RE.search(text):
             test_issues.append("Test assertion failure recorded in test run")
 
         passed_test = len(test_issues) == 0
@@ -761,11 +812,10 @@ class SubagentTeamOrchestrator:
 
         # 1. Simplicity Auditor
         simplicity_issues: list[str] = []
-        # Check for exposed plumbing in customer-facing text
-        if re.search(r"\b(?:internal\s+server\s+error|database\s+connection\s+failed|sql\s+syntax\s+error|fetch\s+records\s+from\s+backend)\b", text, re.IGNORECASE):
+        if _EXEC_PLUMBING_RE.search(text):
             simplicity_issues.append("Internal server or database plumbing exposed to user-facing copy")
 
-        if re.search(r"\b(?:overengineered|accidental\s+complexity|unnecessary\s+abstraction\s+layer)\b", text, re.IGNORECASE):
+        if _EXEC_COMPLEXITY_RE.search(text):
             simplicity_issues.append("Unnecessary architectural complexity or abstraction bloat")
 
         passed_simplicity = len(simplicity_issues) == 0
@@ -786,17 +836,7 @@ class SubagentTeamOrchestrator:
         )
 
         # 2. Technical Debt Officer
-        debt_issues: list[str] = []
-        hack_patterns = [
-            (r"\b(?:TODO:?\s*hack|FIXME|HACK:?\s*temporary|workaround\s+for\s+now)\b", "Temporary hack or workaround marker"),
-            (r"\b(?:monkey\s*patch|monkeypatching)\b", "Monkey patching detected in implementation"),
-            (r"\b(?:revisit\s+later|quick\s+fix\s+for\s+now|ugly\s+hack)\b", "Acknowledged technical debt or quick-fix shortcut"),
-            (r"\b(?:compromise\s+taken|rabbit\s+hole\s+gone\s+down)\b", "Unacceptable architectural compromise or rabbit hole"),
-        ]
-        for pattern, desc in hack_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                debt_issues.append(desc)
-
+        debt_issues: list[str] = [desc for pattern, desc in _EXEC_HACK_PATTERNS if pattern.search(text)]
         passed_debt = len(debt_issues) == 0
         compromises.extend(debt_issues)
         critiques.append(
@@ -816,7 +856,7 @@ class SubagentTeamOrchestrator:
 
         # 3. Product Director
         product_issues: list[str] = []
-        if re.search(r"\b(?:feature\s+incomplete|broken\s+user\s+flow|confusing\s+ux|missing\s+core\s+requirement)\b", text, re.IGNORECASE):
+        if _EXEC_PRODUCT_RE.search(text):
             product_issues.append("Feature incomplete or confusing user flow")
 
         passed_product = len(product_issues) == 0
@@ -863,18 +903,7 @@ class SubagentTeamOrchestrator:
         critiques: list[PersonaCritique] = []
 
         # 1. Wiring Logic Auditor
-        wiring_issues: list[str] = []
-        wiring_patterns = [
-            (r"\b(?:ImportError|ModuleNotFoundError)\b", "Broken module import encountered"),
-            (r"\bAttributeError:\s*module\s+.*has\s+no\s+attribute\b", "Missing attribute or function in module wiring"),
-            (r"\bTypeError:\s*.*missing\s+\d+\s+required\s+positional\s+argument\b", "Mismatched function call signature"),
-            (r"\b(?:wiring\s+defect|wiring\s+error|unwired\s+component)\b", "Wiring defect identified between components"),
-            (r"\bNotImplementedError\b", "Unwired stub (NotImplementedError) remaining in pipeline"),
-        ]
-        for pattern, desc in wiring_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                wiring_issues.append(desc)
-
+        wiring_issues: list[str] = [desc for pattern, desc in _INTEG_WIRING_PATTERNS if pattern.search(text)]
         passed_wiring = len(wiring_issues) == 0
         defects.extend(wiring_issues)
         critiques.append(
@@ -894,7 +923,7 @@ class SubagentTeamOrchestrator:
 
         # 2. Regressions Checker
         reg_issues: list[str] = []
-        if re.search(r"\b(?:regression\s+detected|breaking\s+change\s+to\s+public\s+api|broke\s+existing\s+tests?)\b", text, re.IGNORECASE):
+        if _INTEG_REGRESSION_RE.search(text):
             reg_issues.append("Regression detected against existing codebase tests or models")
 
         passed_reg = len(reg_issues) == 0
@@ -916,7 +945,7 @@ class SubagentTeamOrchestrator:
 
         # 3. State Sync Specialist
         state_issues: list[str] = []
-        if re.search(r"\b(?:state\s+desync|data\s+loss|unsynced\s+cache|dirty\s+write|concurrency\s+race\s+on\s+state)\b", text, re.IGNORECASE):
+        if _INTEG_STATE_RE.search(text):
             state_issues.append("State synchronization or atomic persistence failure")
 
         passed_state = len(state_issues) == 0
@@ -962,19 +991,7 @@ class SubagentTeamOrchestrator:
         critiques: list[PersonaCritique] = []
 
         # 1. Screenshot / Simulator Verifier
-        visual_issues: list[str] = []
-        # Check for explicit craft flaws
-        craft_flaws = [
-            (r"\b(?:sub-44px|tap\s+target\s+too\s+small|hitbox\s*<\s*44)\b", "Sub-44px tap hitbox violates touch ergonomics"),
-            (r"\b(?:off-grid\s+pixel|arbitrary\s+margin|5px|7px|13px)\b", "Off-grid spacing violates 4/8pt rhythm"),
-            (r"\b(?:pinched\s+corner|nested\s+radius\s+distortion)\b", "Pinched nested corner radius violates concentricity"),
-            (r"\b(?:contrast\s+too\s+low|unreadable\s+text|layout\s+shift)\b", "Visual contrast or layout shift defect"),
-            (r"\b(?:screenshot\s+missing|image\s+not\s+found|failed\s+to\s+capture)\b", "Missing or corrupt screenshot evidence"),
-        ]
-        for pattern, desc in craft_flaws:
-            if re.search(pattern, text, re.IGNORECASE):
-                visual_issues.append(desc)
-
+        visual_issues: list[str] = [desc for pattern, desc in _VISUAL_CRAFT_PATTERNS if pattern.search(text)]
         passed_visual = len(visual_issues) == 0
         defects.extend(visual_issues)
         critiques.append(
@@ -1036,7 +1053,7 @@ class SubagentTeamOrchestrator:
 
     def _synthesize_generic_review(self, team: SubagentTeam, text: str) -> TeamReviewVerdict:
         """Generic fallback review synthesis."""
-        has_failure = bool(re.search(r"\b(?:FAILED|ERROR|EXCEPTION|REJECTED)\b", text, re.IGNORECASE))
+        has_failure = bool(_GENERIC_FAILURE_RE.search(text))
         critique = PersonaCritique(
             persona_name=team.personas[0].name if team.personas else "Auditor",
             role="general_auditor",
@@ -1106,6 +1123,8 @@ class SubagentTeamOrchestrator:
         walkthrough_summary: str,
         step_index: int = 6,
         feature_name: str = "Feature Implementation",
+        passed: bool = True,
+        defects: Optional[list[str]] = None,
     ) -> str:
         """Formats visual screenshot proof into a Stratum 3 Milestone Card.
 
@@ -1128,6 +1147,17 @@ class SubagentTeamOrchestrator:
 
         clean_summary = walkthrough_summary.strip() or "*Visual verification completed successfully.*"
 
+        defect_blob = " ".join(defects).lower() if defects else ""
+        def has_defect(*keywords: str) -> bool:
+            return any(k in defect_blob for k in keywords)
+
+        check = "[x]" if passed else "[ ]"
+        check_radii = "[ ]" if has_defect("radi") else check
+        check_rhythm = "[ ]" if has_defect("rhythm", "grid") else check
+        check_touch = "[ ]" if has_defect("touch", "44") else check
+        check_contrast = "[ ]" if has_defect("contrast", "leading") else check
+        check_state = "[ ]" if has_defect("state", "hover") else check
+
         return (
             f"## 📍 Visual Proof Milestone Manifest — Step {step_index}: {feature_name}\n\n"
             f"- **Stratum:** Stratum 3 (Structured Milestone Manifest)\n"
@@ -1137,11 +1167,11 @@ class SubagentTeamOrchestrator:
             f"### 🖼️ Screenshot Evidence Gallery\n"
             f"{gallery_block}\n\n"
             f"### 🔍 Optical & Ergonomic Craft Audit (6-Lens Standard)\n"
-            f"- [x] **Concentric Radii:** Inner corners match $R_{{inner}} = \\max(0, R_{{outer}} - P)$\n"
-            f"- [x] **Strict 4/8pt Rhythm:** Zero arbitrary off-grid pixel margins or paddings\n"
-            f"- [x] **Touch Ergonomics:** All interactive hitboxes meet minimum 44x44px target\n"
-            f"- [x] **Contrast & Typography:** Crisp text contrast and balanced headline leading\n"
-            f"- [x] **State Completeness:** Default, hover, active, and loading states verified\n\n"
+            f"- {check_radii} **Concentric Radii:** Inner corners match $R_{{inner}} = \\max(0, R_{{outer}} - P)$\n"
+            f"- {check_rhythm} **Strict 4/8pt Rhythm:** Zero arbitrary off-grid pixel margins or paddings\n"
+            f"- {check_touch} **Touch Ergonomics:** All interactive hitboxes meet minimum 44x44px target\n"
+            f"- {check_contrast} **Contrast & Typography:** Crisp text contrast and balanced headline leading\n"
+            f"- {check_state} **State Completeness:** Default, hover, active, and loading states verified\n\n"
             f"### 🚶 User Walkthrough Summary\n"
             f"{clean_summary}\n\n"
             f"---\n"
@@ -1178,6 +1208,8 @@ class SubagentTeamOrchestrator:
                 image_paths=image_paths,
                 walkthrough_summary=step_output,
                 step_index=step_idx + 1 if step_idx < 6 else 6,
+                passed=verdict.passed,
+                defects=verdict.defects,
             )
             verdict.metadata["milestone_card"] = manifest
 

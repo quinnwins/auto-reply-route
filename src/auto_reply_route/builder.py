@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-import os
 from pathlib import Path
 import re
 import sys
@@ -113,7 +112,7 @@ class SemanticPromptAnalyzer:
 
     # File extraction pattern
     FILE_PATH_RE = re.compile(
-        r"(?:[\w\-./\\]+)?\b([a-zA-Z0-9_\-]+\.(?:py|js|ts|tsx|json|yaml|yml|md|sql|sh))\b",
+        r"(?:[\w\-./\\]+)?\b([a-zA-Z0-9_\-]+\.(?:py|js|ts|tsx|jsx|go|rs|c|cpp|h|hpp|java|rb|json|yaml|yml|toml|md|sql|sh))\b",
         re.IGNORECASE,
     )
 
@@ -673,16 +672,7 @@ class RouteBuilder:
             # Four-step route: Foundation -> Logic -> Integration -> Verification
             return [canonical_blueprints[0], canonical_blueprints[1], canonical_blueprints[2], canonical_blueprints[3]]
 
-        if target_steps < n_canonical:
-            # Subsample preserving first, middle, and last
-            indices = [0]
-            step_size = (n_canonical - 2) / (target_steps - 2)
-            for i in range(1, target_steps - 1):
-                indices.append(int(round(1 + (i - 1) * step_size)))
-            indices.append(n_canonical - 1)
-            return [canonical_blueprints[i] for i in indices]
-
-        # target_steps > n_canonical: Expand intermediate steps with specialized sub-milestones
+        # target_steps >= n_canonical: Expand intermediate steps if target_steps > n_canonical
         result = list(canonical_blueprints)
         needed = target_steps - n_canonical
 
@@ -921,6 +911,20 @@ class RouteBuilder:
         return content
 
 
+_FOLLOWUP_UX_RE = re.compile(
+    r"\b(?:ui|ux|styling|css|html|tailwind|interface|modal|dialog|button|palette|typography|dark\s*mode|micro[\s\-_]*craft|tap\s*targets?|transitions?|responsive\s+layout)\b",
+    re.IGNORECASE,
+)
+_FOLLOWUP_CODE_RE = re.compile(
+    r"\b(?:code|coding|api|endpoint|database|sql|bug|patch|refactor|test|pytest|unittest|function|class|module|backend|frontend|git|commit|pr|pull\s+request|sdk|library|script|repo|repository|implement|build|scaffold|wire|route|routing|canvassing|screen|view|controller|handler|service|middleware|worker|pipeline|queue|cache|benchmark|optimize|optimization|audit|resumability|auth|oauth|login|token|jwt|webhook|schema|migration|parser|ast|compiler|concurrency|async|thread|mutex|lock|server|client|websocket|socket|http|rest|grpc|cli|command|reconcile|reconciliation)\b",
+    re.IGNORECASE,
+)
+_FOLLOWUP_RESEARCH_RE = re.compile(
+    r"\b(?:research|science|scientific|biomedical|clinical|biology|physics|chemistry|dental|cavitation|plaque|tray|trays|stl-derived|hypothesis|literature|prior\s+art|venture|invest|investment|investor|pitch|business\s+model|market\s+viability|go\s+or\s+no\s+go|feasibility\s+study|commercial\s+viability|roi|unit\s+economics)\b",
+    re.IGNORECASE,
+)
+
+
 def generate_followup_queue(
     prompt: str,
     count: int = 1,
@@ -930,40 +934,40 @@ def generate_followup_queue(
 ) -> MessageQueueManifest:
     """Generate a high-intent follow-up message queue tailored to the prompt.
 
-    Directly implements the user's multi-perspective subagent methodology:
-    1. Multi-perspective review & research with explicit refutation capability.
-    2. Minimal, least-complicated prototype.
-    3. Feasibility, investment, and probability of success audit.
-    4. Adversarial go/no-go audit.
-    5. Final synthesis report with trade-offs.
+    Directly implements domain-aware multi-perspective follow-up trajectories:
+    - Code / Engineering: Inception/Scaffold -> Least-complicated Prototype -> Anti-slop Refactor -> Verification -> Final Report.
+    - UX / Craft: 44px tap targets -> transitions & responsive -> microcopy -> visual proof -> walkthrough.
+    - Research / Venture: Refutation -> Prototype -> Feasibility & ROI -> Adversarial Go/No-Go -> Synthesis.
 
     Defaults to count=1 (single best follow-up prompt), expandable up to 5 steps.
-    Works domain-agnostically across scientific research, strategy, and software engineering.
+    Engineering tasks default to code; research is reserved for explicit venture/biomedical/science queries.
     """
     clean_prompt = prompt.strip() if prompt else ""
     if not clean_prompt:
         clean_prompt = "this project"
 
-    classifier = HumanIntentClassifier()
-    classification = classifier.classify(clean_prompt)
+    classification = HumanIntentClassifier.classify(clean_prompt)
     tier = classification.tier
     subject = classification.extracted_subject or "this project"
 
-    domain = domain_override or tier.value
-
     # Determine domain with word-boundary precision
-    is_ux = domain == PromptIntentTier.UX_CRAFT_AUDIT.value or any(
-        w in clean_prompt.lower() for w in ["design", "ui", "ux", "styling", "theme", "layout"]
+    is_ux = (
+        domain_override == "ux"
+        or tier == PromptIntentTier.UX_CRAFT_AUDIT
+        or bool(_FOLLOWUP_UX_RE.search(clean_prompt))
+    ) and domain_override != "code" and domain_override != "research"
+
+    is_research = (
+        domain_override == "research"
+        or (bool(_FOLLOWUP_RESEARCH_RE.search(clean_prompt)) and not is_ux and domain_override != "code")
     )
 
-    code_keywords = [
-        "code", "coding", "api", "endpoint", "database", "sql", "bug", "patch",
-        "refactor", "test", "pytest", "unittest", "function", "class", "module",
-        "backend", "frontend", "git", "commit", "pr", "pull request", "sdk", "library",
-        "script", "repo", "repository"
-    ]
-    code_pattern = re.compile(r"\b(" + "|".join(code_keywords) + r")\b", re.IGNORECASE)
-    is_code = bool(code_pattern.search(clean_prompt)) or domain_override == "code"
+    is_code = (
+        domain_override == "code"
+        or tier == PromptIntentTier.CODE_BUILD
+        or bool(_FOLLOWUP_CODE_RE.search(clean_prompt))
+        or (not is_ux and not is_research)  # Default fallback for developer tooling is code, never research
+    )
 
     # Build the 5-step trajectory tailored to domain
     trajectory: list[tuple[str, str]] = []
@@ -992,7 +996,32 @@ def generate_followup_queue(
                 "ux",
             ),
         ]
-    elif is_code and domain_override != "research":
+    elif is_research:
+        domain = "research"
+        trajectory = [
+            (
+                f"review and research what is needed for {subject}, with explicit permission to refute earlier claims and add on",
+                "research",
+            ),
+            (
+                f"prototype this {subject} design in the least complicated way that will give me a full sense of how it works",
+                "research",
+            ),
+            (
+                f"review this and see if there is any point in continuing this project, what the investment would look like and what the probability of success would be and projected outcomes",
+                "research",
+            ),
+            (
+                f"critically review your work and determine if this is a go or no go project because there's been lots of others that have failed at this, so we don't want to jump into this blindly and naively",
+                "research",
+            ),
+            (
+                f"give me a final report for this {subject} idea and any potential product business with all relevant info/diagrams/etc",
+                "research",
+            ),
+        ]
+    else:
+        # Default: Software Engineering / Code
         domain = "code"
         trajectory = [
             (
@@ -1014,31 +1043,6 @@ def generate_followup_queue(
             (
                 f"give me a final report for this {subject} implementation with proof of verified functionality and operational instructions",
                 "code",
-            ),
-        ]
-    else:
-        # Default: Science, Research, Biomedical, Advisory, Strategy, Venture
-        domain = "research"
-        trajectory = [
-            (
-                f"review and research what is needed for {subject}, they can refute earlier claims and add on",
-                "research",
-            ),
-            (
-                f"prototype this {subject} design in the least complicated way that will give me a full sense of how it works",
-                "research",
-            ),
-            (
-                f"review this and see if there is any point in continuing this project, what the investment would look like and what the probability of success would be and projected outcomes",
-                "research",
-            ),
-            (
-                f"critically review your work and determine if this is a go or no go project because there's been lots of others that have failed at this, so we don't want to jump into this blindly and naively",
-                "research",
-            ),
-            (
-                f"give me a final report for this {subject} idea and any potential product business with all relevant info/diagrams/etc",
-                "research",
             ),
         ]
 
@@ -1076,7 +1080,7 @@ def generate_followup_queue(
                 final_prompt = f"{final_prompt.rstrip('.')}. {directive}"
         else:
             # Capitalize first letter, zero subagent mentions
-            final_prompt = base_text[0].upper() + base_text[1:]
+            final_prompt = f"{base_text[:1].upper()}{base_text[1:]}"
         manifest.add_message(prompt=final_prompt, domain=msg_domain)
 
     return manifest

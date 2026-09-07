@@ -161,6 +161,32 @@ class TestFollowupQueueGeneration:
         assert "44px" in queue.messages[0].prompt.lower() or "concentric" in queue.messages[0].prompt.lower()
         assert "transitions" in queue.messages[1].prompt.lower() or "loading" in queue.messages[1].prompt.lower()
 
+    def test_canvassing_routing_feature_prompt_defaults_to_code(self) -> None:
+        """Verifies complex feature development tasks never leak venture capital or biomedical templates."""
+        prompt = "Reconcile canvassing routing audit, implement crew screen resumability, and benchmark whole-itinerary optimization"
+        queue = generate_followup_queue(prompt, count=5, max_subagents=3)
+        assert len(queue.messages) == 5
+        assert queue.messages[0].domain == "code"
+
+        # Verify all 5 prompts are software engineering tasks
+        for m in queue.messages:
+            p_lower = m.prompt.lower()
+            # Assert zero venture pitch or biomedical leaks
+            assert "investment" not in p_lower
+            assert "go or no go" not in p_lower
+            assert "others that have failed" not in p_lower
+            assert "dental" not in p_lower
+            assert "cavitation" not in p_lower
+            assert "subagent" in p_lower  # 3 subagents requested
+
+    def test_unclassified_prompts_default_to_code(self) -> None:
+        """Verifies unclassified developer prompts default to code rather than research."""
+        prompt = "implement OAuth2 authentication flow"
+        queue = generate_followup_queue(prompt, count=3)
+        assert len(queue.messages) == 3
+        assert queue.messages[0].domain == "code"
+        assert "investment" not in queue.messages[2].prompt.lower()
+
 
 class TestStopHookQueueDispatcher:
     """Test suite verifying Antigravity Stop Hook automatically dispatches queued messages."""
