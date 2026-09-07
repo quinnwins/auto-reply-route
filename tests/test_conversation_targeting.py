@@ -61,6 +61,19 @@ class TestConversationResolutionHierarchy:
         res = resolve_conversation_id(conversation_id=None, environ=environ)
         assert res == "meta-conv-id"
 
+    def test_source_metadata_json_supports_top_level_keys(self) -> None:
+        environ = {
+            "ANTIGRAVITY_SOURCE_METADATA": json.dumps({"conversationId": "top-conv-id"}),
+        }
+        res = resolve_conversation_id(conversation_id=None, environ=environ)
+        assert res == "top-conv-id"
+
+        environ_snake = {
+            "ANTIGRAVITY_SOURCE_METADATA": json.dumps({"conversation_id": "snake-conv-id"}),
+        }
+        res_snake = resolve_conversation_id(conversation_id=None, environ=environ_snake)
+        assert res_snake == "snake-conv-id"
+
     def test_missing_returns_none(self) -> None:
         res = resolve_conversation_id(conversation_id=None, environ={})
         assert res is None

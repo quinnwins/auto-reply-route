@@ -948,7 +948,14 @@ def generate_followup_queue(
 
     classification = HumanIntentClassifier.classify(clean_prompt)
     tier = classification.tier
-    subject = classification.extracted_subject or "this project"
+    raw_subject = classification.extracted_subject or "this project"
+    # Clean leading verbs (audit, review, fix, build, etc.) to prevent stuttering duplication in templates
+    subject = re.sub(
+        r"^(?:please\s+)?(?:could\s+you\s+)?(?:can\s+you\s+)?(?:audit|review|implement|prototype|build|create|fix|repair|refactor|design)\s+(?:the\s+|a\s+|an\s+)?",
+        "",
+        raw_subject,
+        flags=re.IGNORECASE,
+    ).strip(".:;, \t\n") or raw_subject
 
     # Determine domain with word-boundary precision
     is_ux = (

@@ -778,7 +778,8 @@ class QueueDispatcher:
         sender: str = "user",
         delivery_strategy: str = "MESSAGE_DELIVERY_STRATEGY_WHEN_IDLE",
     ) -> dict[str, Any]:
-        """Atomically enqueue a user-scoped message into Antigravity's queue."""
+        if not content or not isinstance(content, str) or not content.strip():
+            raise ValueError("Message content must be a non-empty string")
         safe_conv_id = _validate_conversation_id(conversation_id)
         messages_dir = self.get_messages_dir(safe_conv_id)
         undelivered_dir = messages_dir / "undelivered"

@@ -519,6 +519,17 @@ class TestQueueDispatcher:
         assert "[BACKGROUND TASK task-99 FAILED with code 1]" in payload["content"]
         assert "Error: test suite timed out" in payload["content"]
 
+    def test_queue_user_message_rejects_empty_content(self, tmp_path: Path) -> None:
+        app_data = tmp_path / "antigravity"
+        dispatcher = QueueDispatcher(app_data_dir=app_data)
+        conv_id = "test-conv-empty"
+
+        with pytest.raises(ValueError, match="Message content must be a non-empty string"):
+            dispatcher.queue_user_message(conversation_id=conv_id, content="")
+
+        with pytest.raises(ValueError, match="Message content must be a non-empty string"):
+            dispatcher.queue_user_message(conversation_id=conv_id, content="   \n\t  ")
+
 
 class TestModuleLevelDispatcher:
     """Tests module-level hook function and CLI integration."""

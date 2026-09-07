@@ -48,9 +48,10 @@ def send_keystroke_to_antigravity(app_name: str = "Antigravity") -> bool:
     
     Enforces a strict 2-second timeout to prevent any macOS TCC hangs.
     """
+    clean_app_name = re.sub(r"[^a-zA-Z0-9_\-\. ]", "", app_name).strip() or "Antigravity"
     script = f'''
     with timeout of 2 seconds
-        tell application "{app_name}" to activate
+        tell application "{clean_app_name}" to activate
         delay 0.15
         tell application "System Events"
             keystroke "v" using {{command down}}
@@ -91,6 +92,7 @@ _LEAD_STEP_RE = re.compile(
 _BARE_STEP_RE = re.compile(r"^(\d+)\s*(?::|-)\s*")
 _TRAIL_SUB_RE = re.compile(r"[\s,\-\(]+(?:with\s+)?(\d+)\s*sub(?:agent)?s?\)?$", re.IGNORECASE)
 _TRAIL_STEP_RE = re.compile(r"[\s,\-\(]+(\d+)\s*(?:steps?|turns?|follow\s*ups?|followups?)\)?$", re.IGNORECASE)
+_TRAIL_CONJ_RE = re.compile(r"[\s,]+(?:and|with)\s*$", re.IGNORECASE)
 _CLEAN_DELIM_RE = re.compile(r"^(?:for|:|-)\s*", re.IGNORECASE)
 _TECH_PREFIX_GUARD_RE = re.compile(
     r"^(?:404|500|502|503|200|201|204|400|401|403|2fa|3d|4k|5g|100x|128-bit|256-bit|32-bit|64-bit)\b",
@@ -159,6 +161,7 @@ def parse_queue_command(text: str, default_steps: int = 5, default_subagents: in
 
     # 3. Loop for trailing modifiers (subagents, steps) in any order
     while True:
+        body = _TRAIL_CONJ_RE.sub("", body).strip()
         m_sub = _TRAIL_SUB_RE.search(body)
         if m_sub:
             subagents = int(m_sub.group(1))
@@ -171,10 +174,11 @@ def parse_queue_command(text: str, default_steps: int = 5, default_subagents: in
             continue
         break
 
-    # 4. Clean up any remaining leading separators ("for", ":", "-")
+    # 4. Clean up any remaining trailing conjunctions or leading separators ("for", ":", "-")
+    body = _TRAIL_CONJ_RE.sub("", body).strip()
     body = _CLEAN_DELIM_RE.sub("", body).strip()
 
-    return body or clean, steps, subagents
+    return body or clean, max(1, steps), max(0, subagents)
 
 
 def parse_queue_command_v4(text: str, default_steps: int = 5, default_subagents: int = 0) -> tuple[str, int, int, bool]:
@@ -218,8 +222,12 @@ def resolve_conversation_id(
     if source_meta and source_meta.strip():
         try:
             parsed = json.loads(source_meta)
-            tool_meta = parsed.get("tool", {})
-            meta_id = tool_meta.get("conversationId")
+            tool_meta = parsed.get("tool", {}) if isinstance(parsed.get("tool"), dict) else {}
+            meta_id = (
+                tool_meta.get("conversationId")
+                or parsed.get("conversationId")
+                or parsed.get("conversation_id")
+            )
             if meta_id and isinstance(meta_id, str):
                 clean = meta_id.strip()
                 if clean:
@@ -527,8 +535,8 @@ def queue_prompts_into_antigravity(
         print(f"\n🎉 Done! All {len(prompts)} prompts are sitting in your visible Queued Messages card.")
 
     finally:
-        # Restore user's original clipboard
-        if original_clipboard:
+        # Restore user's original clipboard (even if originally empty)
+        if original_clipboard is not None:
             set_clipboard(original_clipboard)
 
     return prompts
@@ -587,8 +595,22 @@ def main() -> int:
         default="gemini-3.8-flash-low",
         help="Model to use for AI synthesis (default: gemini-3.8-flash-low)",
     )
+    parser.add_argument(
+        "--grade",
+        action="store_true",
+        help="Evaluate and grade the generated prompts against Operator DNA quality pillars",
+    )
 
     args = parser.parse_args()
+
+    if args.grade:
+        from auto_reply_route.grader import PromptGrader, format_grade_card
+        report = PromptGrader.grade(args.prompt, steps=args.steps, subagents=args.subagents)
+        if args.json:
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(format_grade_card(report))
+        return 0
 
     queue_prompts_into_antigravity(
         prompt=args.prompt,

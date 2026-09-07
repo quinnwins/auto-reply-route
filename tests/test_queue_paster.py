@@ -58,6 +58,38 @@ def test_queue_prompts_preserves_clipboard():
         mock_set_clip.assert_called_with("original text")
 
 
+def test_queue_prompts_restores_empty_clipboard():
+    """Verifies that an originally empty clipboard is restored as empty, not left containing the last prompt."""
+    with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
+         patch("auto_reply_route.queue_paster.set_clipboard") as mock_set_clip, \
+         patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=True):
+
+        prompts = queue_prompts_into_antigravity(
+            prompt="clean test",
+            steps=2,
+            delay_between_steps=0.01,
+            countdown_seconds=0.0,
+        )
+
+        assert len(prompts) == 2
+        # Assert that set_clipboard was called with "" at the end
+        assert mock_set_clip.call_args_list[-1][0][0] == ""
+
+
+def test_send_keystroke_sanitizes_app_name():
+    """Verifies app_name is sanitized against AppleScript injection."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        # Pass dangerous app_name with quotes and escapes
+        send_keystroke_to_antigravity(app_name='Antigravity" and evil')
+        assert mock_run.called
+        call_cmd = mock_run.call_args[0][0]
+        script_arg = call_cmd[2]
+        # Verify the double quote was stripped
+        assert '"Antigravity and evil"' in script_arg
+
+
+
 def test_queue_prompts_defaults_to_no_subagents():
     from auto_reply_route.queue_paster import parse_queue_command
     with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
@@ -249,6 +281,22 @@ def test_technical_prefixes_and_command_words_preserved():
     assert p == "q learning agent in pytorch"
     assert n == 5
 
+    # Compound trailing clauses with 'and' and 'with'
+    p, n, s = parse_queue_command("/q build Stripe billing checkout webhook router with 3 subagents and 5 turns")
+    assert p == "build Stripe billing checkout webhook router"
+    assert n == 5
+    assert s == 3
+
+    p, n, s = parse_queue_command("fix race condition in websocket connection manager with 3 turns")
+    assert p == "fix race condition in websocket connection manager"
+    assert n == 3
+    assert s == 0
+
+    p, n, s = parse_queue_command("/q stop using redux and migrate to zustand with 4 steps")
+    assert p == "stop using redux and migrate to zustand"
+    assert n == 4
+    assert s == 0
+
 
 def test_extract_json_array():
     from auto_reply_route.queue_paster import extract_json_array
@@ -348,5 +396,20 @@ def test_queue_prompts_with_ai_flag_and_fallback():
         assert len(prompts) == 3
         # Should be the engineering deterministic prompts
         assert any("sync" in p.lower() or "offline" in p.lower() for p in prompts)
+
+
+def test_queue_paster_grade_flag(capsys):
+    from unittest.mock import patch
+    import sys
+    from auto_reply_route.queue_paster import main
+
+    test_args = ["queue_paster", "audit mobile checkout drawer for 44px tap targets", "--grade"]
+    with patch.object(sys, "argv", test_args):
+        ret = main()
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "PROMPT TRAJECTORY GRADE CARD" in captured.out
+        assert "Domain Stratification" in captured.out
+
 
 
