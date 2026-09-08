@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -49,6 +51,7 @@ def test_queue_prompts_preserves_clipboard():
             subagents=3,
             delay_between_steps=0.01,
             countdown_seconds=0.0,
+            environ={},
         )
 
         assert len(prompts) == 5
@@ -69,6 +72,7 @@ def test_queue_prompts_restores_empty_clipboard():
             steps=2,
             delay_between_steps=0.01,
             countdown_seconds=0.0,
+            environ={},
         )
 
         assert len(prompts) == 2
@@ -102,6 +106,7 @@ def test_queue_prompts_defaults_to_no_subagents():
             steps=5,
             delay_between_steps=0.01,
             countdown_seconds=0.0,
+            environ={},
         )
 
         assert len(prompts) == 5
@@ -410,6 +415,83 @@ def test_queue_paster_grade_flag(capsys):
         captured = capsys.readouterr()
         assert "PROMPT TRAJECTORY GRADE CARD" in captured.out
         assert "Domain Stratification" in captured.out
+
+
+def test_g_command_parsing():
+    from auto_reply_route.queue_paster import parse_queue_command, is_g_command
+
+    assert is_g_command("/g (Step 2/4) wire doctor forensics into hud") is True
+    assert is_g_command("/g build menubar extra") is True
+    assert is_g_command("regular prompt") is False
+
+    p, n, s = parse_queue_command("/g (Step 2/4) wire doctor forensics into hud and menubar")
+    assert p == "/g (Step 2/4) wire doctor forensics into hud and menubar"
+    assert n == 1
+    assert s == 0
+
+
+def test_auto_promotion_from_gui_to_targeted_when_in_antigravity(tmp_path):
+    """Verifies that running inside Antigravity promotes GUI mode to targeted delivery to prevent cross-chat hijacking."""
+    app_data = tmp_path / "antigravity"
+    conv_id = "test-conv-anti-cross-chat"
+
+    with patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity") as mock_keystroke, \
+         patch("auto_reply_route.queue_paster.set_clipboard") as mock_set_clip:
+
+        environ = {"ANTIGRAVITY_CONVERSATION_ID": conv_id}
+        prompts = queue_prompts_into_antigravity(
+            prompt="/g (Step 2/4) wire doctor forensics into hud and menubar",
+            delivery_mode="gui",
+            countdown_seconds=0.0,
+            app_data_dir=app_data,
+            environ=environ,
+        )
+
+        assert len(prompts) == 1
+        assert prompts[0] == "/g (Step 2/4) wire doctor forensics into hud and menubar"
+
+        # AppleScript keystroke must NEVER be called inside an active Antigravity session
+        mock_keystroke.assert_not_called()
+        mock_set_clip.assert_not_called()
+
+        # Message must exist on disk in the targeted conversation mailbox
+        messages_dir = app_data / "brain" / conv_id / ".system_generated" / "messages"
+        msg_files = list(messages_dir.glob("*.json"))
+        assert len(msg_files) == 1
+
+        with open(msg_files[0]) as f:
+            data = json.load(f)
+            assert data["recipient"] == conv_id
+            assert data["content"] == "/g (Step 2/4) wire doctor forensics into hud and menubar"
+
+
+def test_resilient_fallback_on_gui_failure(tmp_path):
+    """Verifies that when outside Antigravity and AppleScript fails, fallback saves to a scratch recovery file."""
+    app_data = tmp_path / "antigravity"
+
+    with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
+         patch("auto_reply_route.queue_paster.set_clipboard", return_value=True), \
+         patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=False):
+
+        prompts = queue_prompts_into_antigravity(
+            prompt="Q 2 followups for database sharding",
+            steps=2,
+            delivery_mode="gui",
+            countdown_seconds=0.0,
+            app_data_dir=app_data,
+            environ={},
+        )
+
+        assert len(prompts) == 2
+
+        # The fallback file must exist on disk with the prompts safely preserved
+        fallback_file = app_data / "scratch" / "staged_prompts_fallback.json"
+        assert fallback_file.exists()
+        with open(fallback_file) as f:
+            data = json.load(f)
+            assert len(data) == 2
+
+
 
 
 

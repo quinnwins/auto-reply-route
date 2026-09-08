@@ -36,11 +36,14 @@ from auto_reply_route.guidance import (
 )
 from auto_reply_route.queue_paster import (
     dispatch_prompt_to_conversation,
+    get_active_antigravity_conversation_id,
     is_ask_g_command,
+    is_g_command,
     parse_queue_command,
     parse_queue_command_v4,
     queue_prompts_into_antigravity,
     resolve_conversation_id,
+    send_message_via_agentapi,
 )
 from auto_reply_route.hook_driver import (
     AntigravityHookDriver,
@@ -99,6 +102,7 @@ __all__ = [
     "AntigravityHookDriver",
     "BranchCandidate",
     "dispatch_prompt_to_conversation",
+    "get_active_antigravity_conversation_id",
     "GeminiRouteRefiner",
     "GuidanceMode",
     "HumanIntentClassifier",
@@ -106,6 +110,7 @@ __all__ = [
     "IntentCluster",
     "IntentClusterer",
     "IntentStratum",
+    "is_g_command",
     "MatrixBeamRouter",
     "MessageQueueManifest",
     "MockGeminiBackend",
@@ -128,6 +133,7 @@ __all__ = [
     "RouteSuggestion",
     "SanitizationRecord",
     "SecretAndPIISanitizer",
+    "send_message_via_agentapi",
     "SequenceMarkovModel",
     "StepStatus",
     "SubagentTeam",

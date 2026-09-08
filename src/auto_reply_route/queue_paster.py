@@ -19,9 +19,101 @@ import subprocess
 import sys
 import time
 from typing import Any, Optional, Union
+import urllib.request
 
 from auto_reply_route.builder import generate_followup_queue
 from auto_reply_route.hook_driver import QueueDispatcher, _validate_conversation_id
+
+
+def get_active_antigravity_conversation_id(
+    app_data_dir: Optional[Union[str, Path]] = None,
+    timeout: float = 0.5,
+) -> Optional[str]:
+    """Inspects Antigravity's live Chrome DevTools port to determine which conversation is currently active on screen.
+
+    Returns the conversation ID string if Antigravity is running and has an active page open,
+    or None if DevTools is unreachable or Antigravity is not running.
+    """
+    try:
+        # 1. Locate DevTools active port file
+        port_file = Path.home() / "Library/Application Support/Antigravity/DevToolsActivePort"
+        if not port_file.exists():
+            return None
+        lines = port_file.read_text(encoding="utf-8").strip().splitlines()
+        if not lines:
+            return None
+        port = lines[0].strip()
+        if not port.isdigit():
+            return None
+
+        # 2. Query DevTools JSON targets
+        url = f"http://127.0.0.1:{port}/json"
+        req = urllib.request.Request(url, headers={"User-Agent": "antigravity-monitor"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            pages = json.loads(resp.read().decode("utf-8"))
+
+        # 3. Match active page URL /c/<conversation_id>
+        for p in pages:
+            if isinstance(p, dict) and p.get("type") == "page":
+                p_url = p.get("url", "")
+                m = re.search(r"/c/([a-zA-Z0-9_-]+)", p_url)
+                if m:
+                    return m.group(1)
+    except Exception:
+        return None
+    return None
+
+
+def send_message_via_agentapi(
+    recipient_id: str,
+    content: str,
+    title: Optional[str] = None,
+    agentapi_exe: Optional[str] = None,
+    environ: Optional[dict[str, str]] = None,
+    timeout: float = 5.0,
+) -> bool:
+    """Delivers a message natively through Antigravity's Language Server agentapi CLI.
+
+    Guarantees:
+    - Zero window switching or AppleScript keystrokes
+    - Zero clipboard corruption or focus stealing
+    - Direct Language Server queue delivery into the recipient conversation
+    - Immunity to window focus, screen locks, and background tab state
+
+    Returns True if successfully delivered, False otherwise.
+    """
+    env = os.environ if environ is None else environ
+    try:
+        safe_recipient = _validate_conversation_id(recipient_id)
+    except Exception:
+        return False
+
+    exe = (
+        agentapi_exe
+        or env.get("ANTIGRAVITY_AGENTAPI_EXE")
+        or "/Applications/Antigravity.app/Contents/Resources/bin/language_server"
+    )
+    if not Path(exe).exists():
+        return False
+
+    cmd = [exe, "agentapi", "send-message"]
+    if title:
+        cmd.append(f"--title={title}")
+    cmd.extend([safe_recipient, content])
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+        )
+        if proc.returncode == 0 and "error" not in proc.stdout.lower():
+            return True
+    except Exception:
+        return False
+    return False
 
 
 def get_clipboard() -> str:
@@ -80,7 +172,13 @@ _PREFIX_RE = re.compile(
     r"^(?:/(?:queue-prompts|queue|q)\b|(?:queue-prompts|queue|q)\s+(?=\d+\b))\s*",
     re.IGNORECASE,
 )
+_G_PREFIX_RE = re.compile(r"^/g\b", re.IGNORECASE)
 _ASK_G_RE = re.compile(r"\bask[\s\-_]*g\b", re.IGNORECASE)
+
+
+def is_g_command(text: str) -> bool:
+    """Checks if text begins with the '/g' adaptive guidance command."""
+    return bool(_G_PREFIX_RE.search((text or "").strip()))
 _LEAD_SUB_RE = re.compile(
     r"^(?:(?:with|\()\s*)?(?:up to\s+)?(\d+)\s*sub(?:agent)?s?\)?\s*(?:and\s*|,\s*|for\s*|:\s*|-\s*)?",
     re.IGNORECASE,
@@ -113,8 +211,13 @@ def parse_queue_command(text: str, default_steps: int = 5, default_subagents: in
     - '/q 5 (3 subagents) dental device' -> ('dental device', 5, 3)
     - '/q look at this from multiple angles 5 sub' -> ('look at this from multiple angles', 5, 5)
     - 'Q 5 follow ups for making this ready for my daily use' -> ('making this ready for my daily use', 5, 0)
+    - '/g (Step 2/4) wire forensics into hud' -> ('/g (Step 2/4) wire forensics into hud', 1, 0)
     """
     clean = text.strip()
+
+    # If it is an adaptive guidance command (/g), enforce 1 step and preserve full command
+    if is_g_command(clean):
+        return clean, 1, default_subagents
 
     # 1. Strip leading command prefix: /q, /queue-prompts, /queue, Q, Queue
     m_prefix = _PREFIX_RE.match(clean)
@@ -192,7 +295,7 @@ def resolve_conversation_id(
     conversation_id: Optional[str] = None,
     environ: Optional[dict[str, str]] = None,
 ) -> Optional[str]:
-    """Resolves the active Antigravity conversation ID from parameters or environment.
+    """Resolves the verified Antigravity conversation ID from parameters or environment.
 
     Resolution hierarchy:
     1. Explicit conversation_id parameter (if provided and non-empty)
@@ -201,6 +304,8 @@ def resolve_conversation_id(
 
     Returns validated, safe conversation ID string, or None if not determinable.
     Raises ValueError if an explicit or environment ID fails path traversal checks.
+    NOTE: NEVER guesses or falls back to 'most recent directory' by mtime, as that
+    risks cross-chat pollution if the user is working in another chat.
     """
     env = os.environ if environ is None else environ
 
@@ -262,7 +367,19 @@ def dispatch_prompt_to_conversation(
             "Cannot dispatch targeted prompt: no conversation ID provided and none detected in environment."
         )
 
-    dispatcher = QueueDispatcher(app_data_dir=app_data_dir)
+    env = os.environ if environ is None else environ
+    effective_app_data_dir = app_data_dir or env.get("ANTIGRAVITY_APP_DATA_DIR")
+    dispatcher = QueueDispatcher(app_data_dir=effective_app_data_dir)
+
+    # 1. Native AgentAPI Delivery (triggers Language Server reactive wakeup)
+    send_message_via_agentapi(
+        recipient_id=safe_conv_id,
+        content=prompt,
+        title="Targeted Prompt",
+        environ=env,
+    )
+
+    # 2. Durable Mailbox Ledger
     return dispatcher.queue_user_message(
         conversation_id=safe_conv_id,
         content=prompt,
@@ -393,15 +510,18 @@ def queue_prompts_into_antigravity(
     use_ai: bool = False,
     ai_timeout: float = 12.0,
     model: str = "gemini-3.8-flash-low",
+    force_gui: bool = False,
 ) -> list[str]:
     """Generates the prompt sequence and stages them into Antigravity's native queue.
 
     Delivery modes:
     - "auto" (default): Uses targeted inbox delivery if explicit conversation_id is provided,
-      or if custom_prompts has a single `/g` adaptive follow-up. Otherwise uses AppleScript
-      GUI paster so upfront `/q` prompts appear visibly in the GUI 'Queued Messages' tray.
+      if running inside an Antigravity agent process, or if handling a `/g` adaptive follow-up.
+      Otherwise uses AppleScript GUI paster so upfront `/q` prompts appear visibly in the tray.
     - "targeted": Forces direct atomic mailbox delivery via QueueDispatcher (zero focus stealing).
-    - "gui": Forces AppleScript GUI keystroke paste into the frontmost window.
+    - "gui": Forces AppleScript GUI keystroke paste into the frontmost window. If running inside
+      an Antigravity session, auto-promotes to targeted delivery unless force_gui=True to protect
+      the user from cross-chat contamination.
 
     Returns the list of generated/staged prompt strings.
     """
@@ -413,7 +533,11 @@ def queue_prompts_into_antigravity(
     actual_steps = parsed_steps
     actual_subagents = parsed_subagents
 
-    if custom_prompts:
+    # If it is an adaptive guidance command (/g) and no custom prompts were given,
+    # preserve the exact prompt as the single step.
+    if is_g_command(actual_prompt) and not custom_prompts:
+        prompts = [actual_prompt]
+    elif custom_prompts:
         prompts = list(custom_prompts)[:actual_steps]
     elif use_ai:
         ai_prompts = synthesize_bespoke_followups_via_flash(
@@ -470,23 +594,61 @@ def queue_prompts_into_antigravity(
         return prompts
 
     # Determine delivery routing
+    env = os.environ if environ is None else environ
+    resolved_id = resolve_conversation_id(conversation_id=conversation_id, environ=env)
+    is_inside_antigravity = bool(
+        resolved_id and (
+            env.get("ANTIGRAVITY_SOURCE_METADATA") or
+            env.get("ANTIGRAVITY_CONVERSATION_ID") or
+            conversation_id
+        )
+    )
+
+    # Determine active tab in Antigravity UI to ensure zero cross-chat pollution
+    active_chat_id = get_active_antigravity_conversation_id(app_data_dir=app_data_dir)
+    user_is_in_target_chat = bool(active_chat_id and resolved_id and active_chat_id == resolved_id)
+
     target_conv_id: Optional[str] = None
     if delivery_mode == "targeted":
-        target_conv_id = resolve_conversation_id(conversation_id=conversation_id, environ=environ)
+        target_conv_id = resolved_id
         if not target_conv_id:
             raise ValueError("Targeted delivery requested but no conversation ID could be resolved.")
     elif delivery_mode == "auto":
-        if conversation_id and str(conversation_id).strip():
-            target_conv_id = resolve_conversation_id(conversation_id=conversation_id, environ=environ)
-        elif custom_prompts and len(custom_prompts) == 1 and str(custom_prompts[0]).strip().startswith("/g"):
-            target_conv_id = resolve_conversation_id(conversation_id=None, environ=environ)
+        if is_g_command(prompt) or not user_is_in_target_chat:
+            target_conv_id = resolved_id
+    elif delivery_mode == "gui":
+        if is_inside_antigravity and not force_gui:
+            if not user_is_in_target_chat:
+                # User is NOT in this chat! Run 100% in the background!
+                print(f"\n🛡️ Background Delivery Active: User is not currently focused on chat '{resolved_id}'.")
+                print("   Promoting from GUI paste to Targeted Mailbox Delivery (Background Native AgentAPI) to prevent cross-chat pollution.")
+                target_conv_id = resolved_id
+            elif is_g_command(prompt):
+                # /g adaptive commands run in the background to avoid stealing cursor/focus
+                print(f"\n🎯 /g adaptive guidance loop active.")
+                print("   Promoting from GUI paste to Targeted Mailbox Delivery (Background Native AgentAPI) to avoid focus stealing.")
+                target_conv_id = resolved_id
+            else:
+                # User IS in this chat and requested GUI mode (/q): Safe to paste into visible Queued Messages!
+                print(f"\n📺 User is currently active in chat '{resolved_id}'. Staging into visible Queued Messages card.")
 
     if target_conv_id:
-        print(f"\n🎯 Targeted Delivery Active: Routing directly to conversation '{target_conv_id}'")
+        print(f"\n🎯 Background Delivery Active: Routing directly to conversation '{target_conv_id}'")
         print(f"   (Zero focus stealing, zero window switching, zero cross-chat pollution)\n")
 
-        dispatcher = QueueDispatcher(app_data_dir=app_data_dir)
+        effective_app_data_dir = app_data_dir or env.get("ANTIGRAVITY_APP_DATA_DIR")
+        dispatcher = QueueDispatcher(app_data_dir=effective_app_data_dir)
         for i, p in enumerate(prompts):
+            # 1. Native AgentAPI Delivery (wakes up Language Server reactively)
+            title = "/g Adaptive Guidance" if is_g_command(p) else f"Queued Follow-up [{i + 1}/{len(prompts)}]"
+            native_delivered = send_message_via_agentapi(
+                recipient_id=target_conv_id,
+                content=p,
+                title=title,
+                environ=env,
+            )
+
+            # 2. Durable Mailbox Ledger
             receipt = dispatcher.queue_user_message(
                 conversation_id=target_conv_id,
                 content=p,
@@ -495,11 +657,12 @@ def queue_prompts_into_antigravity(
                 delivery_strategy="MESSAGE_DELIVERY_STRATEGY_WHEN_IDLE",
             )
             msg_id = receipt["id"]
-            print(f"   ✔ [Step {i + 1}/{len(prompts)}] Enqueued to conversation {target_conv_id} (msg: {msg_id[:8]}...)")
+            delivery_status = "Native AgentAPI + Mailbox" if native_delivered else "Durable Mailbox Ledger"
+            print(f"   ✔ [Step {i + 1}/{len(prompts)}] Enqueued to conversation {target_conv_id} ({delivery_status}, msg: {msg_id[:8]}...)")
             if delay_between_steps > 0 and i < len(prompts) - 1:
                 time.sleep(min(delay_between_steps, 0.05))
 
-        print(f"\n🎉 Done! All {len(prompts)} prompts are delivered to conversation '{target_conv_id}'.")
+        print(f"\n🎉 Done! All {len(prompts)} prompt(s) delivered in the background to conversation '{target_conv_id}'.")
         return prompts
 
     # Non-macOS safety check
@@ -511,28 +674,52 @@ def queue_prompts_into_antigravity(
     # Fallback to AppleScript UI paster if outside Antigravity environment
     print("\n⚠️ Staging via AppleScript UI paste into visible Queued Messages tray.")
     original_clipboard = get_clipboard()
+    gui_failed = False
 
     try:
         if countdown_seconds > 0:
             print(f"\n⏳ Switching to {app_name} in {countdown_seconds:.1f}s... (Keep cursor in chat input)")
             time.sleep(countdown_seconds)
 
+        # Real-time safety check: did the user switch tabs during the countdown?
+        active_now = get_active_antigravity_conversation_id(app_data_dir=app_data_dir)
+        if resolved_id and active_now and active_now != resolved_id and not force_gui:
+            print(f"\n🛡️ Active chat changed during countdown to '{active_now}'.")
+            print(f"   Aborting GUI paste to avoid cross-chat pollution. Routing in background to '{resolved_id}'.")
+            eff_dir = app_data_dir or env.get("ANTIGRAVITY_APP_DATA_DIR")
+            disp = QueueDispatcher(app_data_dir=eff_dir)
+            for i, p in enumerate(prompts):
+                send_message_via_agentapi(recipient_id=resolved_id, content=p, environ=env)
+                disp.queue_user_message(conversation_id=resolved_id, content=p)
+            print(f"🎉 Delivered all {len(prompts)} prompt(s) in background to '{resolved_id}'.")
+            return prompts
+
         print(f"\n🚀 Staging {len(prompts)} prompts into Antigravity's Queued Messages...")
         for i, p in enumerate(prompts):
             # Load into clipboard
             if not set_clipboard(p):
                 print(f"   ❌ Failed to set clipboard for Step {i + 1}")
-                continue
+                gui_failed = True
+                break
 
             success = send_keystroke_to_antigravity(app_name=app_name)
             if success:
                 print(f"   ✔ [Step {i + 1}/{len(prompts)}] Sent to queue")
             else:
-                print(f"   ⚠️ [Step {i + 1}/{len(prompts)}] Keystroke skipped")
+                print(f"   ⚠️ [Step {i + 1}/{len(prompts)}] Keystroke skipped or failed")
+                gui_failed = True
+                break
 
             time.sleep(delay_between_steps)
 
-        print(f"\n🎉 Done! All {len(prompts)} prompts are sitting in your visible Queued Messages card.")
+        if not gui_failed:
+            print(f"\n🎉 Done! All {len(prompts)} prompts are sitting in your visible Queued Messages card.")
+        else:
+            scratch_dir = Path(app_data_dir or (Path.home() / ".gemini" / "antigravity")) / "scratch"
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+            fallback_file = scratch_dir / "staged_prompts_fallback.json"
+            fallback_file.write_text(json.dumps(prompts, indent=2), encoding="utf-8")
+            print(f"\n⚠️ AppleScript GUI keystroke paste failed. Safely saved {len(prompts)} prompt(s) to fallback file: {fallback_file}")
 
     finally:
         # Restore user's original clipboard (even if originally empty)
@@ -600,6 +787,11 @@ def main() -> int:
         action="store_true",
         help="Evaluate and grade the generated prompts against Operator DNA quality pillars",
     )
+    parser.add_argument(
+        "--force-gui",
+        action="store_true",
+        help="Force AppleScript GUI paste even if inside an active Antigravity session",
+    )
 
     args = parser.parse_args()
 
@@ -626,6 +818,7 @@ def main() -> int:
         use_ai=args.ai,
         ai_timeout=args.ai_timeout,
         model=args.model,
+        force_gui=args.force_gui,
     )
     return 0
 
