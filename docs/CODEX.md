@@ -80,7 +80,11 @@ Selection uses the model already working on the request. The hook stores an
 empty, private per-turn marker only when a review is selected. It consumes
 that marker before asking for the review. It never reads conversation logs.
 The reviewer uses the host's native subagent capability and may add time to
-the selected turn. To turn off automatic selection, disable these two entries
+the selected turn. When T3 runs Codex on a shared ChatGPT plan, OpenAI rejects
+the messages Codex's built-in sub-agents send back, and no Codex setting
+removes that tool. The hook recognizes that connection from the Codex server's
+launch flags, asks for the reviewer through T3's `delegate_task` instead, and
+reminds the model on every prompt to start any helper that way. To turn off automatic selection, disable these two entries
 in the Hooks menu.
 
 ## Delivery and control
