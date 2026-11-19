@@ -24,6 +24,12 @@ When building real software with AI pair programmers, developers face three comp
 
 ---
 
+## Automatic follow-up in T3 Code
+
+The active provider can choose a direct answer, one independent completion review,
+or adaptive follow-through. See [T3 provider setup and limits](docs/T3.md) for the
+different levels of support.
+
 ## Quick Start: Codex desktop
 
 Requires Python 3.9+, Git, and a Codex desktop runtime with a working
