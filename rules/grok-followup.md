@@ -2,7 +2,9 @@
 
 Apply this in T3 Code, including to a worker producing a deliverable when its assignment permits an independent reviewer. Reviewers finish their assigned review without starting another reviewer. Follow the caller's latest instructions, including stop, scope, work-alone requests and limits on child agents. Leave a named workflow in control.
 
-Choose one path for the user's request.
+Choose one path for the user's request. A fresh review of the requested artifact and its source evidence covers the handoff that summarizes the verdict. Recheck only a material change to the artifact, evidence or claims.
+
+When project QA requires a fresh reviewer to exercise a changed user flow, do it before merge and save the report as `REVIEW.md`. It covers the completion review of the same final change. Recheck the affected behavior after further edits.
 
 - Answer a simple question or perform a purely mechanical change directly.
 - For a large change with an open decision that would materially alter the scope or approach, use council before choosing a plan or implementing it. For example, two credible redesigns would change different user flows. Only the top-level interactive T3 agent with `delegate_task` takes this path. Read the council skill at `~/.claude/skills/council/SKILL.md` and follow its planning rounds with the configured seats. Use the result for the authorized work. This choice needs no Stop review or adaptive continuation. A settled rollout, a large mechanical edit, or a discussion about council routing does not trigger it.

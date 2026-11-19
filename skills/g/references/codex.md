@@ -1,8 +1,6 @@
-# /g in Codex desktop
+# /g in Codex
 
-Use the native `codex queue` command through the helper below. It queues for after
-the final answer. `send_message_to_thread` steers the active turn and is unsuitable.
-No Stop hook, clipboard access, background worker, or extra model call is needed.
+Use the helper below. In T3 Code, it queues the next run in the current T3 chat. In standalone Codex, it uses the native Codex queue. In both hosts the next step runs after the current turn ends.
 
 The helper is `../scripts/codex_g.py`, relative to this reference. Resolve its full
 path from the skill you loaded. In a linked user installation it is
@@ -10,8 +8,7 @@ path from the skill you loaded. In a linked user installation it is
 
 ## Start and do the work
 
-Only start when the user invokes `/g`, `$g`, or explicitly asks for this adaptive
-loop. Merely discussing the skill does not start a run. A plain `/g` uses the
+Start when the user invokes `/g` or `$g`, explicitly asks for this adaptive loop, or the enabled automatic picker selects it. Merely discussing the skill does not start a run. A plain `/g` uses the
 current unfinished objective; if nothing remains, answer without starting.
 
 For `/g stop`, read `status`, call `finish --step <current step> --reason paused`,
@@ -81,10 +78,7 @@ Otherwise write the next prompt as plain text to a temporary file and call:
 python3 <helper> stage --step k --prompt-file <file>
 ```
 
-The helper adds `/g (Step k+1/N)` and binds delivery to `CODEX_THREAD_ID`. Never
-override task identity or use another task's state. It returns a native message
-ID only after Codex acknowledges queueing. If the CLI cannot be found, supply
-`--codex-bin` with the installed runtime supporting `codex queue`.
+The helper adds `/g (Step k+1/N)` and reads the task identity from the host. In T3 it checks that the active chat owns this native Codex session, then records the T3 message and run IDs. In standalone Codex it records the native message ID. Only standalone Codex accepts a custom queue binary via `--codex-bin`. Keep the original host and task IDs for the entire run.
 
 Stage exactly one prompt as the last substantive action, immediately before the
 final answer. Then finish promptly with the results and, when helpful, a short

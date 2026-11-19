@@ -9,7 +9,7 @@ installation it is `~/.claude/skills/g/scripts/claude_g.py`. State lives in
 `~/.claude/g-state/<session_id>.json`, one file per session, so parallel sessions never
 steer each other.
 
-Only start a run when the user types `/g` or clearly asks for this loop. Talking about
+Start when the user invokes `/g`, clearly asks for this loop, or the enabled automatic picker selects it. For an automatically selected loop, finish with `--quiet`. Talking about
 `/g` does not start one.
 
 ## Start

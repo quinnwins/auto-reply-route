@@ -8,7 +8,7 @@ import shlex
 import sys
 from uuid import UUID
 
-from planning_council import SCOPING, goal_intake
+from planning_council import PREMERGE_QA, SCOPING, goal_intake
 
 
 def marker(session_id, prompt_id):
@@ -36,7 +36,9 @@ def hook(event):
             return {}
         return {"decision": "block", "reason": (
             "You selected a completion review. Respect the user's latest instructions and stop or opt-out. "
-            "If a fresh independent review of this very result already ran, finish. Otherwise use the "
+            "If a fresh reviewer checked the requested artifact and source evidence, resolve its findings and summarize "
+            "the verdict without another reviewer. Recheck only materially changed evidence, work or claims. "
+            "Otherwise use the "
             "native Agent tool with independent-reviewer for one read-only check. Give it the original "
             "request, relevant clarifications, actual deliverable and necessary source evidence only. "
             "Ask it to flag concrete missing work the user would otherwise have to request again. "
@@ -70,6 +72,7 @@ def hook(event):
         "g.py finish and keep the result in this conversation unless the user explicitly asks for a "
         "notification. Merely discussing a workflow does not start it."
     )
+    context += "\n" + PREMERGE_QA
     if t3:
         context += "\n" + SCOPING
     return {"hookSpecificOutput": {"hookEventName": name, "additionalContext": context}}

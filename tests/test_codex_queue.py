@@ -12,6 +12,11 @@ import pytest
 from auto_reply_route.codex_queue import CodexQueue, QueueError
 
 
+@pytest.fixture(autouse=True)
+def native_desktop_environment(monkeypatch):
+    monkeypatch.delenv("T3CODE_THREAD_ID", raising=False)
+
+
 @pytest.fixture
 def setup_queue(tmp_path):
     thread = str(uuid4())

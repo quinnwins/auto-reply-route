@@ -9,8 +9,10 @@ import sys
 
 REVIEW = (
     "Run the one independent completion review selected for the user's original request. "
-    "Honor later corrections, stop instructions and any work-alone limit. If a fresh "
-    "independent reviewer already checked this exact result, finish. Otherwise use one "
+    "Honor stops and work-alone limits. If a fresh reviewer already checked the requested artifact "
+    "against its source evidence, use that verdict and resolve any open findings. Summarizing the verdict "
+    "does not require another reviewer. Recheck only a material change to the artifact, evidence or claims. "
+    "Otherwise use one "
     "fresh native read-only Grok subagent. Pass the request and only the necessary actual "
     "evidence. Ask for a concrete unmet requirement a real user would have to ask about. "
     "Wait, correct and verify any authorized omission, then deliver the final answer. "

@@ -1,5 +1,11 @@
 """Prompt guidance shared by the Claude and Codex submit hooks."""
 
+PREMERGE_QA = (
+    "When project QA requires a fresh reviewer to exercise a changed user flow, arrange that review "
+    "before merge and save its report as REVIEW.md. Choose Direct over a separate Stop review for "
+    "the same final change. If the change evolves, recheck the affected behavior."
+)
+
 SCOPING = (
     "Council scoping: choose this before implementation in a top-level T3 user chat with the council "
     "skill and delegate_task when a large change has an open choice that materially affects user flows, "

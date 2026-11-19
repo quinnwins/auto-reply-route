@@ -9,7 +9,7 @@ import subprocess
 import sys
 from uuid import UUID
 
-from planning_council import SCOPING, goal_intake
+from planning_council import PREMERGE_QA, SCOPING, goal_intake
 
 
 def ticket(session, turn):
@@ -64,8 +64,9 @@ def handle(data):
             return {}
         return {"decision": "block", "reason": (
             "Automatic completion review selected for this request. The original user's scope, "
-            "latest instructions and permissions still govern. If the user has stopped the work, "
-            "prohibited reviewers, or an independent completion review of this result already ran, finish. "
+            "latest instructions and permissions still govern. Honor stops and reviewer opt-outs. "
+            "If a fresh reviewer checked the requested artifact and source evidence, resolve its findings and summarize "
+            "the verdict without another reviewer. Recheck only materially changed evidence, work or claims. "
             "Otherwise use one fresh "
             + ("read-only reviewer started with T3's delegate_task (built-in sub-agents fail on this "
                "shared ChatGPT plan)" if sharing else "native read-only reviewer")
@@ -92,6 +93,7 @@ def handle(data):
         "The user has opted into automatic follow-up selection. Use your understanding of the actual "
         "request and conversation to choose ONE path now. Explicit user limits, named workflows, "
         "requested models, stops and corrections take precedence.\n"
+        f"{PREMERGE_QA}\n"
         f"• {SCOPING}\n"
         "• Direct: answer simple questions, status requests and purely mechanical edits normally. Also use this "
         "when another requested workflow already supplies its own review, or automatic review/looping "

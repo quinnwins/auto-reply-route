@@ -1,4 +1,4 @@
-"""One adaptive follow-up, delivered through Codex's native desktop queue.
+"""One adaptive follow-up, delivered through the queue of the host running Codex.
 
 The agent chooses the prompt at the end of its work. This module only binds it
 to the current task, enforces the step limit, and records the delivery receipt.
@@ -6,13 +6,14 @@ to the current task, enforces the step limit, and records the delivery receipt.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import fcntl
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,48 @@ class QueueLaunchError(QueueError):
 
 class QueueUncertainError(QueueError):
     """Dispatch may have happened, but no matching receipt was obtained."""
+
+
+def t3_enqueue(thread_id, native_thread_id, message, environ, runner):
+    binary = environ.get("T3CODE_CLI_PATH") or shutil.which("t3")
+    if not binary:
+        raise QueueLaunchError("T3 CLI is unavailable; nothing was queued.")
+    # A nested codex exec inherits T3CODE_THREAD_ID from its caller.
+    # Only the native session currently attached to that chat may queue a turn.
+    base = Path(environ.get("T3CODE_HOME") or Path.home() / ".t3").expanduser().resolve()
+    database = base / "userdata" / "statev2.sqlite"
+    try:
+        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=3)) as db:
+            owner = db.execute("""
+                SELECT json_extract(p.payload_json, '$.nativeThreadRef.nativeId')
+                FROM orchestration_v2_projection_threads t
+                JOIN orchestration_v2_projection_provider_threads p
+                  ON p.provider_thread_id = t.active_provider_thread_id AND p.thread_id = t.thread_id
+                WHERE t.thread_id = ? AND p.driver = 'codex'
+            """, (thread_id,)).fetchone()
+    except sqlite3.Error as exc:
+        raise QueueLaunchError("Could not verify this Codex session's T3 chat; nothing was queued.") from exc
+    if owner != (native_thread_id,):
+        raise QueueLaunchError("This Codex session does not own the T3 chat; nothing was queued.")
+    try:
+        result = runner(
+            [binary, "thread", "send", "--base-dir", str(base), "--json", thread_id, "-"],
+            input=message, capture_output=True, text=True, timeout=20, env=environ,
+        )
+    except OSError as exc:
+        raise QueueLaunchError(f"Could not launch T3: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise QueueUncertainError("T3 queue timed out. Do not retry automatically.") from exc
+    try:
+        receipt = json.loads(result.stdout)
+    except ValueError:
+        receipt = None
+    if (result.returncode or not isinstance(receipt, dict) or receipt.get("threadId") != thread_id
+            or receipt.get("delivery") not in ("queued", "started") or not receipt.get("messageId")
+            or not receipt.get("runId")):
+        raise QueueUncertainError("T3 returned no matching receipt. Do not retry automatically. "
+                                  + result.stderr[-500:])
+    return {"message_id": receipt["messageId"], "run_id": receipt["runId"]}
 
 
 def native_enqueue(thread_id, message, environ, runner=None, codex_bin=None):
@@ -64,6 +107,7 @@ class CodexQueue:
         session = self.environ.get("CODEX_SESSION_ID")
         if session and session != self.thread_id:
             raise QueueError("Task and session IDs disagree; nothing was queued.")
+        self.t3_thread_id = self.environ.get("T3CODE_THREAD_ID")
         self.root = Path(root) if root else Path(
             self.environ.get("CODEX_HOME", str(Path.home() / ".codex"))
         ) / "auto-reply-route"
@@ -89,6 +133,8 @@ class CodexQueue:
         state = json.loads(self.path.read_text())
         if state["thread_id"] != self.thread_id:
             raise QueueError("Stored task ID does not match this task.")
+        if "t3_thread_id" in state and state["t3_thread_id"] != self.t3_thread_id:
+            raise QueueError("Stored T3 thread does not match this chat.")
         return state
 
     def save(self, state):
@@ -117,6 +163,8 @@ class CodexQueue:
                     raise QueueError("An old message may still be queued; do not restart this task yet.")
             state = dict(thread_id=self.thread_id, objective=objective, limit=limit,
                          step=1, status="active", pending=None, receipts=[])
+            if self.t3_thread_id:
+                state["t3_thread_id"] = self.t3_thread_id
             self.save(state)
             return state
 
@@ -156,7 +204,11 @@ class CodexQueue:
             state.update(status="dispatching", pending=dict(step=step + 1, prompt=prompt, message=message))
             self.save(state)
             try:
-                message_id = native_enqueue(self.thread_id, message, self.environ, self.runner, codex_bin)
+                if self.t3_thread_id:
+                    receipt = t3_enqueue(self.t3_thread_id, self.thread_id, message, self.environ, self.runner)
+                else:
+                    message_id = native_enqueue(self.thread_id, message, self.environ, self.runner, codex_bin)
+                    receipt = {"message_id": message_id}
             except QueueLaunchError:
                 state.update(status="active", pending=None)
                 self.save(state)
@@ -166,8 +218,8 @@ class CodexQueue:
                 self.save(state)
                 raise
             state["status"] = "queued"
-            state["pending"]["message_id"] = message_id
-            state["receipts"].append(dict(step=step + 1, message_id=message_id))
+            state["pending"].update(receipt)
+            state["receipts"].append(dict(step=step + 1, **receipt))
             self.save(state)
             return state
 

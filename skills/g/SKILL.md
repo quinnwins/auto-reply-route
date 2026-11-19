@@ -18,7 +18,7 @@ coding step, within the current turn. It adds no queued turns or separate review
 phase. `/q` still stages its prompts first; review-only work stays review-only.
 
 In **Codex**, read [Codex delivery](references/codex.md) and follow that path.
-It retains end-of-turn adaptive prompt selection and uses Codex's native queue.
+It queues each follow-up in the current T3 chat or standalone Codex session.
 In **Claude Code**, read [Claude Code delivery](references/claude-code.md) and follow
 only that path; a Stop hook runs the loop.
 The instructions below are the existing **Antigravity** delivery path.

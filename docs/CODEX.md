@@ -1,15 +1,15 @@
-# /g and /q in Codex desktop
+# /g and /q in Codex
 
 `/g` does the requested work, checks what actually happened, and queues one
 tailored follow-up immediately before its final answer. Codex runs that message
 as the next turn in the same task. Nothing is staged at the start of the work.
 
-The implementation uses the installed CLI's `codex queue --thread … --message …`.
+Standalone Codex uses the installed CLI's `codex queue --thread … --message …`. In T3 Code, `/g` uses `t3 thread send` to queue a visible run in the same chat. It verifies that T3 has attached the current native Codex session to that chat before sending. If ownership cannot be verified, the helper reports the failure and leaves the current step active.
 It does not use simulated typing, the clipboard, a Stop hook, another model, or a
 separate background service. Native `send_message_to_thread` was tested and steers
 an active turn instead, so it is deliberately not used.
 
-`/q` uses the same native transport to stage several follow-ups **upfront**, then
+`/q` uses the native Codex queue to stage several follow-ups **upfront**, then
 does the original work. Each queued message runs as a separate subsequent turn.
 The agent chooses the sequence from your objective and context before starting;
 each follow-up still checks actual results and your latest instructions.
@@ -90,8 +90,7 @@ in the Hooks menu.
 ## Delivery and control
 
 Each queued prompt starts with `/g (Step k/N)`. A successful helper response
-includes Codex's native message ID. This proves acceptance, not execution; the
-following task turn proves execution. The desktop owns the pending-message UI.
+includes the T3 message and run IDs for a T3 chat or the native message ID for standalone Codex. The following task turn proves execution. The desktop owns the pending-message UI.
 The helper does not create a custom chip or claim its appearance was verified.
 
 State lives under `$CODEX_HOME/auto-reply-route/<task-id>.json`, or
