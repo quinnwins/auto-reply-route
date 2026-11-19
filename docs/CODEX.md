@@ -58,6 +58,28 @@ The agent follows [the Codex instructions](../skills/g/references/codex.md). It
 generates the next prompt from real findings. Python only enforces the budget,
 keeps task-specific state, and delivers through the native queue.
 
+## Optional automatic follow-up selection
+
+You can let the model choose a follow-up for each ordinary prompt. Register
+`python3 /absolute/path/to/auto_reply_route/scripts/codex_followup.py` as a
+command handler on both `UserPromptSubmit` and `Stop` in your personal
+`~/.codex/hooks.json`. Append the handlers alongside any existing hooks, then
+review and trust both entries in Codex's `/hooks` menu or Settings → Hooks.
+
+The model answers simple requests directly. For a bounded deliverable it can
+arm one independent review. When the writer tries to finish, the Stop hook
+asks it to use a fresh native reviewer with the original request and relevant
+evidence, then address any concrete gap. For work that needs adaptive turns,
+the model can choose the installed `/g` workflow instead. Explicit instructions
+and slash commands take precedence.
+
+Selection uses the model already working on the request. The hook stores an
+empty, private per-turn marker only when a review is selected. It consumes
+that marker before asking for the review. It never reads conversation logs.
+The reviewer uses the host's native subagent capability and may add time to
+the selected turn. To turn off automatic selection, disable these two entries
+in the Hooks menu.
+
 ## Delivery and control
 
 Each queued prompt starts with `/g (Step k/N)`. A successful helper response
