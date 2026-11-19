@@ -8,6 +8,8 @@ import shlex
 import sys
 from uuid import UUID
 
+from planning_council import SCOPING, goal_intake
+
 
 def marker(session_id, prompt_id):
     directory = Path("/tmp") / ("claude-followup-" + str(os.getuid()))
@@ -44,7 +46,12 @@ def hook(event):
 
     ticket.unlink(missing_ok=True)
     prompt = (event.get("prompt") or "").lstrip()
-    if not prompt or re.match(r"^(?:/[\w-]+|[$\\][gq])(?:\s|$)", prompt, re.I):
+    if not prompt:
+        return {}
+    t3 = bool(os.environ.get("T3CODE_THREAD_ID"))
+    if re.match(r"^(?:/[\w-]+|[$\\][gq])(?:\s|$)", prompt, re.I):
+        if t3 and (context := goal_intake(prompt)):
+            return {"hookSpecificOutput": {"hookEventName": name, "additionalContext": context}}
         return {}
     select = shlex.join(["python3", str(Path(__file__).resolve()), "review", str(UUID(prompt_id))])
     context = (
@@ -63,6 +70,8 @@ def hook(event):
         "g.py finish and keep the result in this conversation unless the user explicitly asks for a "
         "notification. Merely discussing a workflow does not start it."
     )
+    if t3:
+        context += "\n" + SCOPING
     return {"hookSpecificOutput": {"hookEventName": name, "additionalContext": context}}
 
 

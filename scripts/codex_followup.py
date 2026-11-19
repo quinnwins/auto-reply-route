@@ -8,6 +8,8 @@ import shlex
 import sys
 from uuid import UUID
 
+from planning_council import SCOPING, goal_intake
+
 
 def ticket(session, turn):
     # The CLI sandbox and hook process can have different TMPDIR settings.
@@ -53,6 +55,8 @@ def handle(data):
     consume(path)
     prompt = (data.get("prompt") or "").lstrip()
     if not prompt or re.match(r"^(?:[/\\$](?:g|q)|/[\w-]+)(?:\s|$)", prompt, re.I):
+        if context := goal_intake(prompt):
+            return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
         return {}
     step = str(UUID(data["turn_id"]))
     select = shlex.join(["python3", str(Path(__file__).resolve()), "review", step])
@@ -60,6 +64,7 @@ def handle(data):
         "The user has opted into automatic follow-up selection. Use your understanding of the actual "
         "request and conversation to choose ONE path now. Explicit user limits, named workflows, "
         "requested models, stops and corrections take precedence.\n"
+        f"• {SCOPING}\n"
         "• Direct: answer simple questions, status requests and purely mechanical edits normally. Also use this "
         "when another requested workflow already supplies its own review, or automatic review/looping "
         "would violate the request. No selection command is needed.\n"

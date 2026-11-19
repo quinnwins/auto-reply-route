@@ -66,7 +66,10 @@ command handler on both `UserPromptSubmit` and `Stop` in your personal
 `~/.codex/hooks.json`. Append the handlers alongside any existing hooks, then
 review and trust both entries in Codex's `/hooks` menu or Settings → Hooks.
 
-The model answers simple requests directly. For a bounded deliverable it can
+In a top-level T3 chat with the council skill installed, the model can ask
+council to scope a large change before implementation when a consequential
+choice remains open. The installed council skill handles planning rounds. The model
+answers simple requests directly. For a bounded deliverable it can
 arm one independent review. When the writer tries to finish, the Stop hook
 asks it to use a fresh native reviewer with the original request and relevant
 evidence, then address any concrete gap. For work that needs adaptive turns,

@@ -26,9 +26,9 @@ When building real software with AI pair programmers, developers face three comp
 
 ## Automatic follow-up in T3 Code
 
-The active provider can choose a direct answer, one independent completion review,
-or adaptive follow-through. See [T3 provider setup and limits](docs/T3.md) for the
-different levels of support.
+The active provider can answer directly, consult council to scope a large change,
+request one independent completion review, or continue adaptively. See
+[T3 provider setup and limits](docs/T3.md).
 
 ## Quick Start: Codex desktop
 
