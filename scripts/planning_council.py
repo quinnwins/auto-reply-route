@@ -2,8 +2,21 @@
 
 PREMERGE_QA = (
     "When project QA requires a fresh reviewer to exercise a changed user flow, arrange that review "
-    "before merge and save its report as REVIEW.md. Choose Direct over a separate Stop review for "
-    "the same final change. If the change evolves, recheck the affected behavior."
+    "before merge, normally in a fresh session from the same model family, and save REVIEW.md. "
+    "Keep the normal QA handoff. A visual critique cannot satisfy that behavior check. "
+    "Choose Direct over a duplicate Stop review of the same final change. Recheck affected behavior after edits."
+)
+
+DESIGN = (
+    "Visual design: for routine design or polish, choose Direct. The original builder uses the rubric "
+    "from the brief (or its audience and task) on renders at the target sizes (desktop and phone for responsive work). Name the screen, visible "
+    "weakness and reader impact; revise once if needed and verify. A self-score is optional. "
+    "In a top-level T3 user chat choosing between finished directions for a flagship screen or redesign, "
+    "use the council skill's blind finished-design comparison directly. For a requested second opinion or "
+    "one material visual question still unresolved, use one read-only reviewer from a different model family "
+    "when available. Send the brief, renders and question; the original builder decides and edits. "
+    "Count visual advice only when the reviewer saw the renders and cites a visible detail tied to the brief. "
+    "Disclose missing image access. These design paths do not arm a Stop review."
 )
 
 SCOPING = (

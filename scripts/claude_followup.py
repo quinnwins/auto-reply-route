@@ -8,7 +8,7 @@ import shlex
 import sys
 from uuid import UUID
 
-from planning_council import PREMERGE_QA, SCOPING, goal_intake
+from planning_council import DESIGN, PREMERGE_QA, SCOPING, goal_intake
 
 
 def marker(session_id, prompt_id):
@@ -60,6 +60,7 @@ def hook(event):
         "The user has enabled automatic follow-up selection in Claude Code. Choose one path based on the "
         "user's request and conversation. Respect explicit workflow choices, review-only requests, "
         "opt-outs, and stops. No workflow grants additional permissions.\n"
+        f"{DESIGN}\n"
         "Direct: for simple answers, status checks, mechanical edits, or a request that already "
         "has its own review, proceed normally.\n"
         "Independent review: for a bounded deliverable with source evidence or observable behavior to "

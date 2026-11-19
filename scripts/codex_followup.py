@@ -9,7 +9,7 @@ import subprocess
 import sys
 from uuid import UUID
 
-from planning_council import PREMERGE_QA, SCOPING, goal_intake
+from planning_council import DESIGN, PREMERGE_QA, SCOPING, goal_intake
 
 
 def ticket(session, turn):
@@ -95,6 +95,7 @@ def handle(data):
         "requested models, stops and corrections take precedence.\n"
         f"{PREMERGE_QA}\n"
         f"• {SCOPING}\n"
+        f"• {DESIGN}\n"
         "• Direct: answer simple questions, status requests and purely mechanical edits normally. Also use this "
         "when another requested workflow already supplies its own review, or automatic review/looping "
         "would violate the request. No selection command is needed.\n"
