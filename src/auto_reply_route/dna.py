@@ -115,6 +115,22 @@ class IngestedPrinciples:
     sources: list[str] = field(default_factory=list)
 
 
+def _candidate_rule_lines(lines: list[str], keywords: tuple[str, ...]):
+    """Skip groups containing neither a rule phrase nor a Markdown heading."""
+    block_size = 256
+    if len(lines) <= block_size:
+        yield from lines
+        return
+    phrases = [re.compile(re.escape(keyword)) for keyword in keywords]
+    for start in range(0, len(lines), block_size):
+        block = lines[start:start + block_size]
+        lower = "\n".join(block).lower()
+        if any(phrase.search(lower) for phrase in phrases):
+            yield from block
+        elif "#" in lower:
+            yield from (line for line in block if "#" in line)
+
+
 def parse_agents_markdown(content: str) -> dict[str, Any]:
     """Parses AGENTS.md markdown content to extract simplicity laws, living-room test,
     anti-patterns, anti-tower-of-babel rules, and executive steering invariants.
@@ -183,9 +199,8 @@ def parse_agents_markdown(content: str) -> dict[str, Any]:
         "least complicated way to build this",
     )
 
-    lines = content.splitlines()
-
-    for line in lines:
+    keywords = simplicity_keywords + anti_pattern_keywords + anti_tower_keywords + executive_keywords + ("living-room",)
+    for line in _candidate_rule_lines(content.splitlines(), keywords):
         stripped = line.strip()
         if not stripped:
             continue
