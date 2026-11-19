@@ -41,7 +41,8 @@ def test_send_keystroke_timeout_handled():
 
 def test_queue_prompts_preserves_clipboard():
     """Verifies that in standard queue staging (no conversation ID), clipboard is preserved."""
-    with patch("auto_reply_route.queue_paster.get_clipboard", return_value="original text"), \
+    with patch("auto_reply_route.queue_paster.sys", platform="darwin"), \
+         patch("auto_reply_route.queue_paster.get_clipboard", return_value="original text"), \
          patch("auto_reply_route.queue_paster.set_clipboard") as mock_set_clip, \
          patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=True):
 
@@ -63,7 +64,8 @@ def test_queue_prompts_preserves_clipboard():
 
 def test_queue_prompts_restores_empty_clipboard():
     """Verifies that an originally empty clipboard is restored as empty, not left containing the last prompt."""
-    with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
+    with patch("auto_reply_route.queue_paster.sys", platform="darwin"), \
+         patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
          patch("auto_reply_route.queue_paster.set_clipboard") as mock_set_clip, \
          patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=True):
 
@@ -469,7 +471,8 @@ def test_resilient_fallback_on_gui_failure(tmp_path):
     """Verifies that when outside Antigravity and AppleScript fails, fallback saves to a scratch recovery file."""
     app_data = tmp_path / "antigravity"
 
-    with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
+    with patch("auto_reply_route.queue_paster.sys", platform="darwin"), \
+         patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
          patch("auto_reply_route.queue_paster.set_clipboard", return_value=True), \
          patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=False):
 

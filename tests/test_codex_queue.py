@@ -20,7 +20,7 @@ def native_desktop_environment(monkeypatch):
 @pytest.fixture
 def setup_queue(tmp_path):
     thread = str(uuid4())
-    env = {**os.environ, "CODEX_THREAD_ID": thread, "CODEX_SESSION_ID": thread}
+    env = {"CODEX_THREAD_ID": thread, "CODEX_SESSION_ID": thread, "CODEX_CLI_PATH": "/fixture/codex"}
     calls = []
 
     def runner(argv, **kwargs):

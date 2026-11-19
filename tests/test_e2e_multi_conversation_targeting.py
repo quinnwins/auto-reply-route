@@ -3,7 +3,7 @@
 Empirically proves:
 1. Real subprocess execution of multiple concurrent conversations (/g and /q).
 2. Zero window switching: macOS frontmost application process never changes.
-3. Zero clipboard pollution: pbpaste contents remain 100% byte-for-byte intact.
+3. On macOS, the system pasteboard change count stays constant during dispatch.
 4. Zero cross-chat pollution: 4 simultaneous conversations writing bursts of follow-ups
    remain strictly partitioned in their own respective brain/ directories.
 5. Poison-script verification: Any osascript invocation is intercepted and fails fast,
@@ -240,6 +240,7 @@ class TestE2EMultiConversationIsolation:
             assert d["content"] == expected_content
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires the macOS window server and pasteboard")
 class TestZeroWindowSwitchingAndZeroClipboardPollution:
     """Verifies that running targeted dispatches leaves macOS window focus and system clipboard untouched."""
 
@@ -269,19 +270,14 @@ class TestZeroWindowSwitchingAndZeroClipboardPollution:
         )
 
     def test_real_macos_clipboard_byte_for_byte_unmodified(self, tmp_path: Path) -> None:
-        """Sets a unique canary on the real macOS clipboard via pbcopy, runs dispatches,
-        and verifies via pbpaste that the canary was never touched or overwritten.
-        """
-        canary = f"TEST_CANARY_INTEGRITY_CHECK_{uuid.uuid4().hex}_{time.time()}"
-        
-        # Set clipboard canary
-        p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-        p.communicate(canary.encode("utf-8"))
-        assert p.returncode == 0
+        """Observe pasteboard ownership changes without reading or overwriting clipboard data."""
+        def pasteboard_change_count() -> int:
+            return int(subprocess.check_output([
+                "osascript", "-l", "JavaScript", "-e",
+                "ObjC.import('AppKit'); $.NSPasteboard.generalPasteboard.changeCount",
+            ], text=True))
 
-        # Verify canary is active
-        check = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
-        assert check == canary
+        before = pasteboard_change_count()
 
         # Run multi-step queue_prompts_into_antigravity in targeted mode
         sandbox_app_data = tmp_path / "sandbox_gemini"
@@ -297,11 +293,7 @@ class TestZeroWindowSwitchingAndZeroClipboardPollution:
         )
         assert len(prompts) == 4
 
-        # Read clipboard again
-        final_clipboard = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
-
-        # Must be 100% byte-for-byte identical
-        assert final_clipboard == canary, "CLIPBOARD CORRUPTION: macOS clipboard was modified by targeted queueing"
+        assert pasteboard_change_count() == before, "Targeted queueing changed the macOS pasteboard"
 
 
 class TestPoisonAppleScriptDefense:

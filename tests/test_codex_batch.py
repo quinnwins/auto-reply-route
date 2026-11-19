@@ -16,7 +16,7 @@ from auto_reply_route.codex_queue import CodexQueue, QueueError
 @pytest.fixture
 def batch_fixture(tmp_path):
     thread = str(uuid4())
-    env = {**os.environ, "CODEX_THREAD_ID": thread, "CODEX_SESSION_ID": thread}
+    env = {"CODEX_THREAD_ID": thread, "CODEX_SESSION_ID": thread, "CODEX_CLI_PATH": "/fixture/codex"}
     calls = []
     def runner(argv, **kwargs):
         calls.append(argv)

@@ -219,7 +219,8 @@ def test_no_guessing_fallback_when_unspecified(tmp_path):
     chat_dir = app_data / "brain" / "some-existing-chat"
     chat_dir.mkdir(parents=True)
 
-    with patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
+    with patch("auto_reply_route.queue_paster.sys", platform="darwin"), \
+         patch("auto_reply_route.queue_paster.get_clipboard", return_value=""), \
          patch("auto_reply_route.queue_paster.set_clipboard", return_value=True), \
          patch("auto_reply_route.queue_paster.send_keystroke_to_antigravity", return_value=False):
 
